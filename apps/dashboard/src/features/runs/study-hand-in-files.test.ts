@@ -9,7 +9,9 @@ import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tr
 vi.mock('../studies/StudyFileThumbnail.vue', () => ({
   default: { template: '<span class="thumbnail" />' },
 }));
-vi.mock('../../ui/RecordedMarkdown.vue', () => ({ default: { template: '<span />' } }));
+vi.mock('../../ui/lazy-recorded-markdown', () => ({
+  lazyRecordedMarkdown: () => ({ template: '<span />' }),
+}));
 
 it('opens the saved output belonging to this run', async () => {
   workspaceId.value = 'w';
@@ -79,3 +81,128 @@ it('leaves the question for the researcher out of the run report', async () => {
   app.unmount();
   client.clear();
 });
+
+it.each(['keyed', 'keyless'])(
+  'shows the accepted measure beside an exact value with %s review',
+  async (mode) => {
+    workspaceId.value = 'w';
+    const client = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    });
+    const measure = { id: 'difference', name: 'Mean difference', unit: 'seconds' };
+    const accepted = { key: 'h1', kind: 'hypothesis', status: 'unclear', carried: true };
+    const rejected = { key: 'h2', kind: 'hypothesis', status: 'fail' };
+    const withdrawn = { key: 'h4', kind: 'hypothesis', status: 'pass' };
+    const items = [accepted, rejected, withdrawn];
+    const key = (kind: string) => [...keys.recordsAll('w', 'c'), 'kind', kind];
+    client.setQueryData(key('hypothesis'), [
+      {
+        key: 'h1',
+        board_column: 'hypotheses',
+        role: 'leader',
+        body: { text: 'Accepted', measure },
+      },
+      {
+        key: 'h2',
+        board_column: 'hypotheses',
+        role: 'leader',
+        body: {
+          text: 'Rejected',
+          measure: { id: 'rejected', name: 'Rejected amount', unit: 'metres' },
+        },
+      },
+      {
+        key: 'h3',
+        board_column: 'hypotheses',
+        role: 'leader',
+        body: {
+          text: 'Accepted',
+          measure: { id: 'difference', name: 'Edited difference', unit: 'metres' },
+        },
+      },
+      {
+        key: 'h4',
+        board_column: 'hypotheses',
+        role: 'leader',
+        body: {
+          text: 'Withdrawn',
+          measure: { id: 'withdrawn', name: 'Withdrawn amount', unit: 'metres' },
+        },
+      },
+    ]);
+    client.setQueryData(key('withdrawn'), [{ board_column: 'hypotheses', body: { item: 'h4' } }]);
+    client.setQueryData(
+      [...keys.recordsAll('w', 'c'), 'review'],
+      [
+        {
+          column: 'hypotheses',
+          attempts: mode === 'keyed' ? [{ round: 1, decision: 'carry', items }] : [],
+        },
+      ],
+    );
+    client.setQueryData(key('outcome'), [
+      {
+        board_column: 'hypotheses',
+        round: 1,
+        role: 'server',
+        body:
+          mode === 'keyed'
+            ? { verdict: 'carry' }
+            : { verdict: 'approved_by_owner', decision_id: 'chosen' },
+      },
+    ]);
+    client.setQueryData(
+      key('server_checks'),
+      mode === 'keyed'
+        ? []
+        : [
+            {
+              board_column: 'hypotheses',
+              round: 1,
+              role: 'server',
+              body: {
+                complete: true,
+                approval_decision: 'chosen',
+                checks: { items },
+              },
+            },
+          ],
+    );
+    const root = node('root');
+    const app = createTreeApp({
+      render: () =>
+        h(StudyHandIn, {
+          cardId: 'c',
+          runId: 'r',
+          role: 'agent',
+          column: 'experimentation',
+          handIn: {
+            answer: 'Done',
+            values: [
+              {
+                name: 'treated',
+                value: '0.0150',
+                field: '/difference/value',
+                measure: 'difference',
+              },
+              { name: 'legacy', value: '1.23' },
+              { name: 'unknown', value: '4', field: '/rejected', measure: 'rejected' },
+              { name: 'withdrawn', value: '5', field: '/withdrawn', measure: 'withdrawn' },
+            ],
+          },
+        }),
+    });
+    app.use(VueQueryPlugin, { queryClient: client });
+    app.mount(root);
+    await nextTick();
+    expect(textOf(root)).toContain('Mean difference: 0.0150 seconds');
+    expect(textOf(root)).toContain('/difference/value');
+    expect(textOf(root)).toContain('value: 1.23');
+    expect(textOf(root)).not.toContain('Rejected amount');
+    expect(textOf(root)).not.toContain('Edited difference');
+    expect(textOf(root)).not.toContain('Withdrawn amount');
+    app.unmount();
+    client.clear();
+    workspaceId.value = '';
+  },
+);

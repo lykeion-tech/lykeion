@@ -8,6 +8,7 @@ import {
   defaultSpoke,
   indexOf,
   legacyColumns,
+  reviewItemLabel,
   spokes,
   statusWord,
   tileOf,
@@ -15,6 +16,7 @@ import {
 import { columnName } from '../../lib/studies';
 
 const props = defineProps<{ cardId: string; request?: { column: Column } | null }>();
+const emit = defineEmits<{ openOutput: [key: string] }>();
 const card = useCard(() => props.cardId);
 const review = useCardReview(() => props.cardId);
 const members = useMembers();
@@ -108,7 +110,7 @@ const angledSpokes = computed(() => {
     return {
       ...spoke,
       angle,
-      label: `${items.value[spoke.item]!.label} · ${checkLabel(items.value[spoke.item]!.checks[spoke.check]!.id)} · ${pct(spoke.p)}%`,
+      label: `${reviewItemLabel(items.value[spoke.item]!)} · ${checkLabel(items.value[spoke.item]!.checks[spoke.check]!.id)} · ${pct(spoke.p)}%`,
     };
   });
 });
@@ -250,7 +252,24 @@ const ServerChecks = () =>
                     },
                     icons[check.status],
                   ),
-                  h('div', [h('b', item.label), h('p', check.detail ?? '')]),
+                  h('div', [
+                    h('b', reviewItemLabel(item)),
+                    h('p', check.detail ?? ''),
+                    check.warning ? h('span', { class: 'review-tag' }, 'warning only') : null,
+                    check.id === 'bound' &&
+                    check.status === 'pass' &&
+                    typeof item.output === 'string' &&
+                    item.output
+                      ? h(
+                          'button',
+                          {
+                            class: 'text-button',
+                            onClick: () => emit('openOutput', item.output!),
+                          },
+                          'Open verified output',
+                        )
+                      : null,
+                  ]),
                 ]),
               ),
             ]),
@@ -276,7 +295,7 @@ const validationStatuses = computed(() =>
   (validation.value?.statuses ?? []).map((status) => ({
     hypothesis: String(status.hypothesis ?? '').slice(0, 80),
     status: String(status.status ?? ''),
-    reason: Array.isArray(status.reasons) ? String(status.reasons[0] ?? '') : '',
+    reasons: Array.isArray(status.reasons) ? status.reasons : [],
     objections: upheldObjections.value
       .filter((objection) => citesObjection(status, objection))
       .map(objectionText),
@@ -437,7 +456,7 @@ const unlinkedObjections = computed(() =>
         </div>
         <section v-if="selected && attempt" class="selected-check" aria-label="Selected check">
           <div class="selected-title">
-            <span class="type-caption">SELECTED</span><b>{{ selected.item.label }}</b>
+            <span class="type-caption">SELECTED</span><b>{{ reviewItemLabel(selected.item) }}</b>
           </div>
           <div class="selected-status">
             <b :style="{ color: colors[selected.check.status] }">{{
@@ -499,7 +518,7 @@ const unlinkedObjections = computed(() =>
             </div>
             <section v-for="group in checkGroups" :key="group.index" class="check-group">
               <header class="check-group-heading">
-                <b>{{ group.item.label }}</b>
+                <b>{{ reviewItemLabel(group.item) }}</b>
                 <span v-if="group.item.carried" class="review-tag">carried</span>
                 <span v-if="attempt.weakest?.key === group.item.key" class="type-caption"
                   >weakest · Jev {{ pct(attempt.weakest.p) }}% sure</span
@@ -540,7 +559,7 @@ const unlinkedObjections = computed(() =>
               <div>
                 <b>{{ status.hypothesis }}</b> <span class="review-tag">{{ status.status }}</span>
               </div>
-              <p>{{ status.reason }}</p>
+              <p v-for="(reason, j) in status.reasons" :key="j">{{ reason }}</p>
               <p v-for="(objection, j) in status.objections" :key="j" class="validation-objection">
                 {{ objection }}
               </p>

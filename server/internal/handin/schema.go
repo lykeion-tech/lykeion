@@ -78,9 +78,11 @@ var schemas = map[Kind]string{
 	Hypotheses: buildStudy(
 		"hypotheses", list(object(
 			"text", str(),
+			"measure", desc(nullObj(object("id", str(), "name", str(), "unit", str())), "Declare the predicted measure with a short lowercase id, name and unit, or null if no measure can be declared."),
 			"prediction_shape", enum("direction", "outcomes", "range"),
 			"direction", obj{"type": []string{"string", "null"}, "enum": []any{"increase", "decrease", "no_change", nil}},
 			"outcomes", list(str()),
+			"comparison", desc(nullObj(object("threshold", nullNum(), "control", nullStr(), "less", str(), "equal", str(), "greater", str())), "For outcomes already defined by a numeric comparison, set either the threshold in measure units or the exact planned control value name. Map less, equal and greater to registered outcome labels. Otherwise null."),
 			"chosen", nullStr(), "low", nullNum(), "high", nullNum(), "uncertainty", nullStr(),
 			"control", nullStr(), "no_control", nullStr(),
 			"cites", list(str()))),
@@ -89,7 +91,9 @@ var schemas = map[Kind]string{
 		"outputs", list(str()),
 		"values", list(object("name", str(),
 			"value", desc(str(), "The exact number or observed outcome label printed by the script or saved in its output."),
-			"file", str(), "run", desc(nullStr(), "Exact run:KEY of the script that produced this value in a saved output, or null when the file is already a run:KEY or no script produced it."))),
+			"file", str(), "run", desc(nullStr(), "Exact run:KEY of the script that produced this value in a saved output, or null when the file is already a run:KEY or no script produced it."),
+			"field", desc(nullStr(), "JSON Pointer to the number in the named saved JSON file, or null for an unbound value."),
+			"measure", desc(nullStr(), "ID from an accepted hypothesis for this measurement, or null for an unbound value."))),
 		"replies", list(reply())),
 	Auditor: build(
 		"concerns", list(object("item", str(), "concern", str())),
@@ -105,7 +109,7 @@ var schemas = map[Kind]string{
 				"df2", desc(nullNum(), "The second degrees of freedom, for an F test; null when the test has none."),
 				"p", obj{"type": "number"}, "p_bound", enum("=", "<", ">"))),
 				"The test exactly as a recorded script run printed it: Lykeion looks for its statistic and p in the rerun's output. Null when there is none."),
-			"observed", desc(nullStr(), "For a hypothesis that names outcomes, the name of the recorded value whose text is the outcome seen, one of the named outcomes; null otherwise."))),
+			"observed", desc(nullStr(), "For a hypothesis that names outcomes, the name of the recorded value whose text is the outcome seen, one of the named outcomes. For outcomes with a numeric comparison, optional because the server derives the label from bound values. Null otherwise."))),
 		"verdicts", list(object("claim", str(), "verdict", enum("supported", "refuted", "not_enough_info"), "source", str(), "quote", str())),
 		"flagged_errors", list(object("source", str(), "quote", str(), "problem", str())),
 		"replies", list(reply())),

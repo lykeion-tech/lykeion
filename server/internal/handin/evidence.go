@@ -96,9 +96,9 @@ func ModeOf(study []db.Record) string {
 	return "claims"
 }
 
-// StandingHypotheses are the Hypotheses column's hypotheses that still
-// stand, in order: the last live declaration of each, unless it was
-// withdrawn.
+// StandingHypotheses keeps accepted declarations for structured measurements
+// and comparisons. Legacy hypotheses use the last live declaration unless
+// it was withdrawn.
 func StandingHypotheses(study []db.Record) []db.Record {
 	gone := map[string]bool{}
 	for _, r := range study {
@@ -118,9 +118,22 @@ func StandingHypotheses(study []db.Record) []db.Record {
 		}
 		last[id] = r
 	}
+	accepted := map[string]db.Record{}
+	for _, r := range AcceptedHypotheses(study) {
+		accepted[review.IdentityOf(r)] = r
+	}
 	var out []db.Record
 	for _, id := range order {
-		if r := last[id]; !gone[r.Key] {
+		r := last[id]
+		latest := records.Body[review.HypothesisBody](r)
+		if decided, ok := accepted[id]; ok {
+			frozen := records.Body[review.HypothesisBody](decided)
+			if latest.Measure != nil || latest.Comparison != nil || frozen.Measure != nil || frozen.Comparison != nil {
+				out = append(out, decided)
+				continue
+			}
+		}
+		if !gone[r.Key] && latest.Measure == nil && latest.Comparison == nil {
 			out = append(out, r)
 		}
 	}

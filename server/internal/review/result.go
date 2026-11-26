@@ -42,11 +42,14 @@ type Item struct {
 	Label string `json:"label"` // the paper id, accession, or the text cut to fit 80 characters
 	// Identity is what matches the item across declarations and attempts;
 	// the label is for display only.
-	Identity string  `json:"identity,omitempty"`
-	Status   string  `json:"status"`
-	Unjudged bool    `json:"unjudged,omitempty"`
-	Carried  bool    `json:"carried,omitempty"`
-	Checks   []Check `json:"checks"`
+	Identity string   `json:"identity,omitempty"`
+	Status   string   `json:"status"`
+	Unjudged bool     `json:"unjudged,omitempty"`
+	Carried  bool     `json:"carried,omitempty"`
+	Checks   []Check  `json:"checks"`
+	Measure  *Measure `json:"measure,omitempty"`
+	Value    string   `json:"value,omitempty"`
+	Output   string   `json:"output,omitempty"`
 }
 
 type Weakest struct {

@@ -20,6 +20,10 @@ type ValueCheck struct {
 	Sentence string // the work record's text, for Jev
 	Context  string // up to 300 bytes around the match
 	Textual  bool   // a categorical or other nonnumeric outcome
+	Unbound  bool   // explicit legacy value record
+	Binding  []Check
+	Measure  *Measure
+	Output   string
 }
 
 type ExperimentationInput struct {
@@ -105,7 +109,15 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 		if !v.Found {
 			traced.Detail, traced.Status = "not printed by a script run that succeeded, nor in its saved files", Fail
 		}
-		it.Checks = []Check{traced}
+		if len(v.Binding) != 0 {
+			it.Checks, it.Measure, it.Value, it.Output = slices.Clone(v.Binding), v.Measure, v.Value, v.Output
+		} else {
+			it.Checks = []Check{traced}
+			if v.Unbound {
+				it.Checks = append(it.Checks, Check{ID: "unbound", By: "server", Status: Unclear, Warning: true,
+					Detail: "No saved field or hypothesis measure was declared. This value was checked using legacy tracing."})
+			}
+		}
 		if v.Found && a == nil {
 			r.AwaitJudgment(&it)
 		} else if v.Found {

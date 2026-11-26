@@ -39,7 +39,11 @@ ON CONFLICT (card_id, board_column) DO UPDATE SET pack_id = EXCLUDED.pack_id;
 SELECT c.*,
   COALESCE((SELECT w FROM agent_run t, agent_run_waiting(t.workspace_id, t.id) w
     WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued' AND w IS NOT NULL
+      AND NOT (t.kind = 'rerun' AND t.requires_output_attestation)
     ORDER BY t.created_at, t.id LIMIT 1),
+    (SELECT CASE WHEN t.queue_reason = 'runtime_offline' THEN 'Waiting for a machine: reconnect the daemon.'
+      ELSE 'Waiting for a daemon with output attestation. Upgrade if the daemon does not support frozen comparisons.' END FROM agent_run t
+    WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued' AND t.requires_output_attestation LIMIT 1),
     -- A column whose hand-in waits on scoring is not plain work in progress.
     (SELECT 'Waiting for scoring: it is unavailable. Lykeion keeps retrying.' FROM inbox_item i
     WHERE i.workspace_id = c.workspace_id AND i.card_id = c.id AND i.kind = 'scoring_unavailable' AND i.resolved_at IS NULL
@@ -107,7 +111,13 @@ SELECT t.*, a.name AS agent_name,
       'machine', COALESCE(rc.result->>'machine_name', rt.custom_name, rt.device_name, '')) ORDER BY rc.attempt)
     FROM agent_run_receipt rc LEFT JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
     WHERE rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt < t.attempt), '[]')::jsonb AS attempt_ends,
-  COALESCE(agent_run_waiting(t.workspace_id, t.id), '')::text AS waiting,
+  -- Frozen reruns use queue_reason for machine availability because they have no CLI.
+  COALESCE(CASE WHEN t.kind <> 'rerun' OR NOT t.requires_output_attestation THEN agent_run_waiting(t.workspace_id, t.id) END,
+    CASE WHEN t.status = 'queued' AND t.requires_output_attestation THEN
+      CASE WHEN t.queue_reason = 'runtime_offline' THEN 'Waiting for a machine: reconnect the daemon.'
+        ELSE 'Waiting for a daemon with output attestation. Upgrade if the daemon does not support frozen comparisons.' END
+    END,
+    '')::text AS waiting,
   COALESCE(h.body->'hand_in'->>'answer', '')::text AS answer,
   h.body->'hand_in' AS hand_in,
   COALESCE(h.id::text, '')::text AS hand_in_id,

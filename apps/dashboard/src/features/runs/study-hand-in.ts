@@ -1,3 +1,6 @@
+import type { HypothesisMeasure, ReviewAttempt, StudyRecord } from '../../api/types';
+import { objectFields, readMeasure } from '../../lib/measurement';
+
 // The run list truncates latest_text, sometimes in the middle of a JSON string.
 export function messagePreview(text: string): string {
   if (!/^\s*\{\s*"/.test(text)) return text;
@@ -80,4 +83,69 @@ export function memberResult(tool: string, output: string) {
   } catch {
     return null;
   }
+}
+
+// Match accepted review items to their exact live declarations, including approvals
+// whose deterministic checks were stored in a decision snapshot.
+export function acceptedMeasures(
+  hypotheses: StudyRecord[],
+  reviews: ReviewAttempt[],
+  outcomes: StudyRecord[],
+  snapshots: StudyRecord[],
+  withdrawals: StudyRecord[],
+): Map<string, HypothesisMeasure> {
+  const outcome = [...outcomes]
+    .reverse()
+    .find((r) => r.board_column === 'hypotheses' && r.role === 'server' && !r.superseded_at);
+  if (!outcome) return new Map();
+  const verdict = outcome.body.verdict;
+  let items: unknown;
+  if (verdict === 'pass' || verdict === 'carry') {
+    items = [...reviews]
+      .reverse()
+      .find((a) => a.round === outcome.round && a.decision === verdict)?.items;
+  } else if (verdict === 'approved_by_owner' && typeof outcome.body.decision_id === 'string') {
+    const snapshot = [...snapshots]
+      .reverse()
+      .find(
+        (r) =>
+          r.board_column === 'hypotheses' &&
+          r.role === 'server' &&
+          !r.superseded_at &&
+          r.round === outcome.round &&
+          r.body.complete === true &&
+          r.body.approval_decision === outcome.body.decision_id,
+      );
+    items = objectFields(snapshot?.body.checks)?.items;
+  }
+  if (!Array.isArray(items)) return new Map();
+  const kept = new Set(
+    items.flatMap((value) => {
+      const item = objectFields(value);
+      return item?.kind === 'hypothesis' &&
+        typeof item.key === 'string' &&
+        item.key.length > 0 &&
+        (item.status === 'pass' || item.status === 'unclear')
+        ? [item.key]
+        : [];
+    }),
+  );
+  for (const r of withdrawals) {
+    if (r.board_column === 'hypotheses' && !r.superseded_at && typeof r.body.item === 'string')
+      kept.delete(r.body.item);
+  }
+  const measures = new Map<string, HypothesisMeasure>();
+  const conflicts = new Set<string>();
+  for (const r of hypotheses) {
+    if (r.board_column !== 'hypotheses' || r.superseded_at) continue;
+    if ((r.role !== 'agent' && r.role !== 'leader') || !kept.has(r.key)) continue;
+    const measure = readMeasure(r.body.measure);
+    if (!measure) continue;
+    const existing = measures.get(measure.id);
+    if (existing && (existing.name !== measure.name || existing.unit !== measure.unit))
+      conflicts.add(measure.id);
+    else measures.set(measure.id, measure);
+  }
+  for (const id of conflicts) measures.delete(id);
+  return measures;
 }

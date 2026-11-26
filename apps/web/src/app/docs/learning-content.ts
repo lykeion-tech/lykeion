@@ -31,7 +31,7 @@ export const stages = [
     agents:
       'An Experimentation agent executes the assigned work on a usable machine. Workflow studies use an individual agent.',
     evidence: 'Produced files, computation, notebook records and reported errors.',
-    gate: 'The server checks saved outputs and traces reported values to execution. Jev checks how traced values are described.',
+    gate: 'The server checks saved outputs and verifies bound numbers against a script output’s exact JSON field and the declared hypothesis measure. Values without a binding still undergo execution tracing and receive a warning. Jev checks how values are described.',
     result: 'Inspectable analysis and artifacts, with limitations to carry into review.',
   },
   {

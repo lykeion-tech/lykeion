@@ -14,15 +14,16 @@ import (
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/statcheck"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
 
 func TestRerunPreservesFailedStderr(t *testing.T) {
-	result, err := (&Engine{}).rerunRecord(context.Background(), nil, nil, RerunResult{Steps: []RerunStepResult{
+	result, err := (&Engine{}).rerunRecord(context.Background(), nil, nil, nil, RerunResult{Steps: []RerunStepResult{
 		{Key: "failed", ExitStatus: 1, Error: "FileNotFoundError\n" + strings.Repeat("abc", 2000)},
 		{Key: "passed", Error: "a warning"},
-	}}, 0)
+	}}, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,6 +31,110 @@ func TestRerunPreservesFailedStderr(t *testing.T) {
 	if got.ExitStatus != 1 || !strings.HasPrefix(got.Stderr, "FileNotFoundError") || !strings.HasSuffix(got.Stderr, "[stderr truncated]") ||
 		len(got.Stderr) >= 5000 || result.Steps[1].Stderr != "" {
 		t.Fatalf("unexpected stderr capture, %d bytes for failure and %q for success", len(got.Stderr), result.Steps[1].Stderr)
+	}
+}
+
+func TestRerunReproducesEachBoundValueAtTheSamePath(t *testing.T) {
+	const name = "outputs/metrics.json"
+	field, id := "/effect", "effect"
+	blobs := storage.Local{Dir: t.TempDir()}
+	e := Engine{Blobs: blobs}
+	var exp, saved []db.Record
+	var in RerunResult
+	for _, tc := range []struct{ key, number, upload string }{
+		{"x1", "0.12", "outputs/.lyk-replay/04208dc9a15aaf21695f9a0b0efedbb8aafd90600cd62d6321edeef6a377f4bd.json"},
+		{"x2", "0.24", "outputs/.lyk-replay/46301a014331ef58250077a2a0095eb0fa221a44c7f24b63b6e2446a1b5d54aa.json"},
+	} {
+		body, err := json.Marshal(review.ValueBody{Name: tc.key, File: name, Value: tc.number, Field: &field, Measure: &id, Cites: []string{"run:" + tc.key}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exp = append(exp, db.Record{Kind: "value", Key: tc.key, Body: body})
+		text := `{"effect":` + tc.number + `}`
+		hash := hashText(text)
+		if err := blobs.Put(t.Context(), tc.upload, strings.NewReader(text), int64(len(text))); err != nil {
+			t.Fatal(err)
+		}
+		meta, err := json.Marshal(service.SavedOutput{Name: tc.upload, Sha256: hash})
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved = append(saved, db.Record{Kind: "rerun_output", Key: "output-" + tc.key, BlobKey: tc.upload, Body: meta})
+		in.Outputs = append(in.Outputs, RerunOutput{Name: tc.upload, TextSHA256: hash})
+		in.Steps = append(in.Steps, RerunStepResult{Key: tc.key, OutputHashes: map[string]string{name: hash}})
+	}
+	measures := map[string]review.Measure{id: {ID: id, Unit: "fraction"}}
+	body, err := e.rerunRecord(t.Context(), exp, saved, nil, in, 0, measures)
+	if err != nil || !body.Reproduced["x1"] || !body.Reproduced["x2"] ||
+		body.BoundValues["x1"] != "0.12" || body.BoundValues["x2"] != "0.24" {
+		t.Fatalf("both per-execution values should reproduce: %+v, %v", body, err)
+	}
+	in.Steps[0].OutputHashes[name] = in.Steps[1].OutputHashes[name]
+	body, err = e.rerunRecord(t.Context(), exp, saved, nil, in, 0, measures)
+	if err != nil || body.Reproduced["x1"] || !body.Reproduced["x2"] {
+		t.Fatalf("an execution must not borrow another execution's output: %+v, %v", body, err)
+	}
+}
+
+func TestLegacyReplayCollisionLeavesOrdinaryAssessmentInconclusive(t *testing.T) {
+	const path, early, final = "outputs/result.json", `{"value":0.2}`, `{"value":0.8}`
+	pointer, id := "/value", "accuracy"
+	blobs := storage.Local{Dir: t.TempDir()}
+	if err := blobs.Put(t.Context(), path, strings.NewReader(final), int64(len(final))); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := json.Marshal(service.SavedOutput{Name: path, Sha256: hashText(final)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := []db.Record{{Kind: "rerun_output", Key: "o1", BlobKey: path, Body: meta}}
+	var exp []db.Record
+	for _, v := range []struct{ key, text string }{{"early", "0.2"}, {"later", "0.8"}} {
+		body, err := json.Marshal(review.ValueBody{Name: v.key, File: path, Value: v.text, Field: &pointer, Measure: &id, Cites: []string{"run:" + v.key}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exp = append(exp, db.Record{Kind: "value", Key: v.key, Body: body})
+	}
+	measure := review.Measure{ID: id, Name: "Accuracy", Unit: "fraction"}
+	lo, hi := 0.1, 0.3
+	hyp := review.HypothesisBody{Text: "Accuracy is between 0.1 and 0.3", Measure: &measure,
+		Prediction: review.Prediction{Shape: "range", Low: &lo, High: &hi}, Control: review.Control{Text: "baseline"}}
+	plan := []service.RerunStep{{Key: "early", OutputPaths: []string{path}}, {Key: "later", OutputPaths: []string{path}}}
+	for _, tc := range []struct {
+		name, digest, want, reason string
+		exit                       int
+		scoped                     bool
+	}{
+		{"legacy manifest lost earlier file", hashText(early), review.Inconclusive, "saved only the final copy", 0, false},
+		{"legacy replay without earlier manifest", "", review.Inconclusive, "saved only the final copy", 0, false},
+		{"failed execution", "", review.Invalid, "was not reproduced", 1, false},
+		{"own verified final bytes with wrong field value", hashText(final), review.Invalid, "replayed field holds", 0, false},
+		{"missing scoped output", hashText(early), review.Invalid, "was not reproduced", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := RerunResult{Steps: []RerunStepResult{
+				{Key: "early", ExitStatus: tc.exit, OutputHashes: map[string]string{path: tc.digest}},
+				{Key: "later", OutputHashes: map[string]string{path: hashText(final)}},
+			}, Outputs: []RerunOutput{{Name: path, TextSHA256: hashText(final)}}, ScopedOutputs: tc.scoped}
+			body, err := (&Engine{Blobs: blobs}).rerunRecord(t.Context(), exp, saved, plan, in, 0, map[string]review.Measure{id: measure})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := db.Record{Key: "rerun", Body: raw}
+			if tc.want == review.Inconclusive && !strings.Contains(replayEvidence(r), `Measurement "early" could not be checked`) {
+				t.Fatalf("replay evidence should describe the missing artifact: %s", replayEvidence(r))
+			}
+			m := measured(exp, r)
+			got := review.Statuses([]review.HypothesisBody{hyp}, []review.Assessment{{Hypothesis: hyp.Text, Measurement: "early"}}, m, nil)[0]
+			if got.Status != tc.want || !strings.Contains(strings.Join(got.Reasons, " "), tc.reason) || m["early"].BoundValue != "" || m["later"].BoundValue != "0.8" {
+				t.Fatalf("assessment = %+v, measures = %+v", got, m)
+			}
+		})
 	}
 }
 
@@ -194,13 +299,13 @@ func TestRoundWithNoScriptsNeedsNoJob(t *testing.T) {
 func TestToleranceWidensTheDigitRule(t *testing.T) {
 	values := []db.Record{{Kind: "value", Body: []byte(`{"name":"acc","value":"0.912","file":"fit.py","cites":["run:x1"]}`)}}
 	steps := map[string]RerunStepResult{"x1": {Key: "x1", Output: "epoch 3 acc 0.874"}}
-	if ok, notes := reproduce(values, steps, nil, 0); ok["acc"] || notes["acc"] != "rerun printed 0.874, reported 0.912" {
+	if ok, notes, _ := reproduce(values, steps, nil, 0, nil); ok["acc"] || notes["acc"] != "rerun printed 0.874, reported 0.912" {
 		t.Fatalf("no tolerance: %v %v", ok, notes)
 	}
-	if ok, notes := reproduce(values, steps, nil, 0.05); !ok["acc"] || len(notes) != 0 {
+	if ok, notes, _ := reproduce(values, steps, nil, 0.05, nil); !ok["acc"] || len(notes) != 0 {
 		t.Fatalf("5%% tolerance: %v %v", ok, notes)
 	}
-	if ok, _ := reproduce(values, steps, nil, 0.04); ok["acc"] {
+	if ok, _, _ := reproduce(values, steps, nil, 0.04, nil); ok["acc"] {
 		t.Fatalf("4%% tolerance reproduced a value 4.2%% off")
 	}
 }
@@ -229,13 +334,33 @@ func TestAReportedTestIsFoundOnlyByTheDigitRule(t *testing.T) {
 	}
 }
 
+func TestFailedReplayCannotSupplyStatisticsFromSavedFiles(t *testing.T) {
+	const path, good, overwritten = "outputs/metrics.json", `{"statistic":12}`, `{"statistic":32}`
+	const legacyPath, legacy = "outputs/summary.txt", "statistic 42"
+	steps := map[string]RerunStepResult{
+		"x1": {Key: "x1", Output: "statistic 22", OutputHashes: map[string]string{path: hashText(good), legacyPath: hashText(legacy)}},
+		"x2": {Key: "x2", ExitStatus: 1, Output: "statistic 52", OutputHashes: map[string]string{path: hashText(overwritten)}},
+	}
+	files := map[string]string{service.ReplayOutputName("x1", path): good, path: overwritten, legacyPath: legacy}
+	printed := printedNumbers(steps, files)
+	for _, tc := range []struct {
+		statistic float64
+		want      bool
+	}{{12, true}, {22, true}, {32, false}, {42, true}, {52, false}} {
+		assessments := []review.Assessment{{Hypothesis: "h", Test: &statcheck.Test{Statistic: tc.statistic, PBound: "<"}}}
+		if got := testsPrinted(assessments, printed)["h"]; got != tc.want {
+			t.Errorf("statistic %g counted = %t, want %t; printed = %v", tc.statistic, got, tc.want, printed)
+		}
+	}
+}
+
 func TestRerunOnlyUsesTheMeasurementsOwnFile(t *testing.T) {
 	values := []db.Record{{Kind: "value", Body: []byte(`{"name":"f1","value":"1.5","file":"out/metrics.txt","cites":["run:x1"]}`)}}
 	steps := map[string]RerunStepResult{"x1": {Key: "x1", Output: "done"}}
-	if ok, notes := reproduce(values, steps, map[string]string{"out/metrics.txt": "f1 1.50"}, 0); !ok["f1"] {
+	if ok, notes, _ := reproduce(values, steps, map[string]string{"out/metrics.txt": "f1 1.50"}, 0, nil); !ok["f1"] {
 		t.Fatalf("the matching file from a single-step replay: %v %v", ok, notes)
 	}
-	if ok, _ := reproduce(values, steps, map[string]string{"out/other.txt": "f1 1.50"}, 0); ok["f1"] {
+	if ok, _, _ := reproduce(values, steps, map[string]string{"out/other.txt": "f1 1.50"}, 0, nil); ok["f1"] {
 		t.Fatal("a value was found in an unrelated file")
 	}
 }
@@ -247,7 +372,7 @@ func TestRerunDoesNotBorrowMeasurementsAcrossScripts(t *testing.T) {
 		{Kind: "value", Body: []byte(`{"name":"control","value":"42","file":"control.py","cites":["run:x1"],"script_run":true}`)},
 	}
 	steps := map[string]RerunStepResult{"x1": {Output: "42"}, "x2": {ExitStatus: 17, Error: "missing marker"}}
-	ok, notes := reproduce(values, steps, map[string]string{"outputs/probe.txt": "73"}, 0)
+	ok, notes, _ := reproduce(values, steps, map[string]string{"outputs/probe.txt": "73"}, 0, nil)
 	if ok["failed"] || ok["ambiguous"] || !ok["control"] ||
 		!strings.Contains(notes["failed"], "status 17") || !strings.Contains(notes["ambiguous"], "exact script") {
 		t.Fatalf("wrong replay attribution: %v %v", ok, notes)

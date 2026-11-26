@@ -17,7 +17,7 @@ INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,lab_cha
 SELECT c.workspace_id,'aristotle',c.owner_id,c.owner_id,c.id,$1,'',0,'aristotle',$2,'',$3,$4,'lab-chat:'||c.id::text||CASE WHEN c.purpose='answer' THEN '' ELSE ':'||c.purpose END,clock_timestamp(),c.purpose
 FROM lab_chat c WHERE c.deleted_at IS NULL AND c.archived_at IS NULL AND c.workspace_id=app_workspace() AND c.owner_id=app_user() AND c.owner_id= $5::uuid AND c.id= $6::uuid
 AND EXISTS(SELECT 1 FROM member m WHERE m.workspace_id=c.workspace_id AND m.user_id=c.owner_id)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id, first_started_at, legacy_unverified_started
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id, first_started_at, legacy_unverified_started, requires_output_attestation
 `
 
 type InsertLabAgentRunParams struct {
@@ -94,6 +94,7 @@ func (q *Queries) InsertLabAgentRun(ctx context.Context, arg InsertLabAgentRunPa
 		&i.PinnedRuntimeID,
 		&i.FirstStartedAt,
 		&i.LegacyUnverifiedStarted,
+		&i.RequiresOutputAttestation,
 	)
 	return i, err
 }
@@ -217,7 +218,7 @@ func (q *Queries) LabPriorTurns(ctx context.Context, runID uuid.UUID) ([]LabPrio
 }
 
 const lockDepartingLabRuns = `-- name: LockDepartingLabRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id, first_started_at, legacy_unverified_started FROM agent_run
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id, first_started_at, legacy_unverified_started, requires_output_attestation FROM agent_run
 WHERE workspace_id = $1 AND kind = 'aristotle' AND requester_id = $2
  AND status IN ('queued','dispatched','running')
 ORDER BY id FOR UPDATE
@@ -292,6 +293,7 @@ func (q *Queries) LockDepartingLabRuns(ctx context.Context, arg LockDepartingLab
 			&i.PinnedRuntimeID,
 			&i.FirstStartedAt,
 			&i.LegacyUnverifiedStarted,
+			&i.RequiresOutputAttestation,
 		); err != nil {
 			return nil, err
 		}
@@ -369,7 +371,7 @@ UPDATE agent_run r SET prompt=q.body||
  CASE WHEN q.context_ref IS NOT NULL THEN E'\n\nContext record (read first): '||q.context_ref WHEN q.context_card_id IS NULL THEN '' ELSE E'\n\nContext study: study:'||q.context_card_id::text END
 FROM lab_message q WHERE r.workspace_id=app_workspace() AND r.kind='aristotle' AND r.id= $1
 AND q.workspace_id=r.workspace_id AND q.owner_id=app_user() AND q.chat_id=r.lab_chat_id AND q.agent_run_id=r.id AND q.kind='question'
-RETURNING r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id, r.lab_purpose, r.pinned_runtime_id, r.first_started_at, r.legacy_unverified_started
+RETURNING r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id, r.lab_purpose, r.pinned_runtime_id, r.first_started_at, r.legacy_unverified_started, r.requires_output_attestation
 `
 
 // Only the current question enters a queued/claimed prompt. The launch request
@@ -432,6 +434,7 @@ func (q *Queries) RefreshLabRunPrompt(ctx context.Context, id uuid.UUID) (AgentR
 		&i.PinnedRuntimeID,
 		&i.FirstStartedAt,
 		&i.LegacyUnverifiedStarted,
+		&i.RequiresOutputAttestation,
 	)
 	return i, err
 }

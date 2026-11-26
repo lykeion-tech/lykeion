@@ -418,7 +418,7 @@ it('shows Validation statuses with the objections upheld against them', async ()
         {
           hypothesis: 'Seedlings grow taller',
           status: 'caveated',
-          reasons: ['Small sample', 'Second reason'],
+          reasons: ['Small sample', 'The reported outcome disagrees with the comparison'],
           cites: ['r9'],
         },
       ],
@@ -437,7 +437,7 @@ it('shows Validation statuses with the objections upheld against them', async ()
   expect(textOf(row!)).toContain('caveated');
   expect(textOf(row!)).toContain('Small sample');
   expect(textOf(row!)).toContain('wrong test: p');
-  expect(textOf(row!)).not.toContain('Second reason');
+  expect(textOf(row!)).toContain('The reported outcome disagrees with the comparison');
   expect(textOf(row!)).not.toContain('dropped objection');
   expect(textOf(row!)).not.toContain('unrelated objection');
   expect(textOf(root)).toContain('Sent back to Experimentation once');
@@ -717,3 +717,29 @@ it.each(['score', 'outcome'])(
     expect(textOf(root)).toContain('Relevance — Mostly');
   },
 );
+
+it('shows structured server checks beside the declared measurement', async () => {
+  const a = grounding();
+  a.column = 'experimentation';
+  a.items = [
+    {
+      ...a.items[0]!,
+      label: 'Untrusted name',
+      value: '0.0150',
+      measure: { id: 'difference', name: 'Mean difference', unit: 'seconds' },
+      output: 'o1',
+      checks: [{ id: 'bound', by: 'server', status: 'pass', detail: 'Matches the saved field.' }],
+    },
+    {
+      ...a.items[0]!,
+      label: 'Legacy value',
+      checks: [{ id: 'unbound', by: 'server', status: 'unclear', warning: true }],
+    },
+  ];
+  const { root } = setup([{ column: 'experimentation', attempts: [a] }]);
+  await nextTick();
+  expect(textOf(root)).toContain('Mean difference: 0.0150 seconds');
+  expect(textOf(root)).toContain('Open verified output');
+  expect(textOf(root)).toContain('Legacy value');
+  expect(textOf(root)).toContain('warning only');
+});

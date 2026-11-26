@@ -72,6 +72,16 @@ type Replay struct {
 	Failure *string `json:"failure"`
 }
 
+// Measurement projects a recorded value and its verified source into the graph.
+type Measurement struct {
+	Record  string         `json:"record"`
+	Name    string         `json:"name"`
+	Value   string         `json:"value"`
+	Field   string         `json:"field"`
+	Measure review.Measure `json:"measure"`
+	Output  string         `json:"output"`
+}
+
 type Node struct {
 	ID      string          `json:"id"`   // "question", or "rec:<record key>", "run:<agent_run id>", "obj:<record id>", "doubt:<column>:<item key>"
 	Kind    string          `json:"kind"` // question|paper|dataset|hypothesis|experiment|output|finding|objection|doubt
@@ -94,7 +104,8 @@ type Node struct {
 
 	// ContentType is an output's recorded media type: it says whether the
 	// output is a figure or a table.
-	ContentType string `json:"content_type,omitempty"`
+	ContentType  string        `json:"content_type,omitempty"`
+	Measurements []Measurement `json:"measurements,omitempty"`
 }
 
 type Edge struct {
@@ -120,6 +131,7 @@ type builder struct {
 	edges         []Edge
 	outputs       map[string][]db.Record
 	legacyOutputs map[string]string
+	measurements  map[string]Measurement // value record key → verified measurement
 }
 
 // Build makes the report from in's rows alone: no model, nothing inferred.
@@ -234,6 +246,7 @@ func Build(in Input) Report {
 	}
 
 	// Outputs.
+	measurementsByOutput := b.collectMeasurements()
 	outputs := b.of("", "output")
 	for _, r := range outputs {
 		name := records.Body[struct{ Name string }](r).Name
@@ -246,6 +259,7 @@ func Build(in Input) Report {
 		}](r)
 		n := b.recNode(r, "output")
 		n.Label, n.ContentType = body.Name, body.ContentType
+		n.Measurements = measurementsByOutput[r.Key]
 		if len(b.outputs[body.Name]) > 1 {
 			n.Label = r.Key + " · " + body.Name
 		}
@@ -300,6 +314,9 @@ func Build(in Input) Report {
 		n.Label, n.Quote, n.Status, n.Reasons, n.Rerun = s.Hypothesis, s.Hypothesis, s.Status, s.Reasons, rerun
 		f := finding{id: n.ID, text: strings.TrimSpace(s.Hypothesis), chain: map[string]bool{}}
 		for _, k := range s.Cites {
+			if m, ok := b.measurements[k]; !f.chain[k] && ok {
+				n.Measurements = append(n.Measurements, m)
+			}
 			f.chain[k] = true
 		}
 		for _, k := range assessmentKeys[f.text] {
@@ -539,10 +556,13 @@ func (b *builder) recNode(r db.Record, kind string) Node {
 
 // A path reused by several outputs needs a producing run to identify the evidence.
 func (b *builder) valueOutput(value db.Record) string {
-	body := records.Body[struct {
-		File  string
-		Cites []string
-	}](value)
+	if m, ok := b.measurements[value.Key]; ok {
+		return "rec:" + m.Output
+	}
+	body := records.Body[review.ValueBody](value)
+	if body.Field != nil || body.Measure != nil {
+		return "" // Structured values only link to the exact output established by review.
+	}
 	citedRuns := map[uuid.UUID]bool{}
 	for _, ref := range body.Cites {
 		if key, ok := strings.CutPrefix(ref, "run:"); ok {

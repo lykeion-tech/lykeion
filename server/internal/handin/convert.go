@@ -11,29 +11,19 @@ import (
 	"lykeion/server/internal/review"
 )
 
-// Review is what the column's last review sent back: each failed item's
-// identity with the key of the record that declared it, bounded retry aliases
-// with their identities, and the ids of papers it found missing.
+// Review records the preceding round's failed items, retry aliases, missing
+// papers and the measure definitions that carry forward.
 type Review struct {
-	Failed  map[string]string
-	Missed  []string
-	Aliases map[string]string
+	Failed          map[string]string
+	Missed          []string
+	Aliases         map[string]string
+	CarriedMeasures []review.Measure
 }
 
 // NewRecord is one record a hand-in becomes, written on the run's behalf.
 type NewRecord struct {
 	Kind string
 	Body any
-}
-
-// valueBody is the record a reported value becomes: the file that shows it, and
-// the script runs of that file, if it is a script.
-type valueBody struct {
-	Name      string   `json:"name"`
-	Value     string   `json:"value"`
-	File      string   `json:"file"`
-	Cites     []string `json:"cites"`
-	ScriptRun bool     `json:"script_run,omitempty"`
 }
 
 type declinedBody struct {
@@ -91,7 +81,7 @@ func Convert(k Kind, lead bool, h HandIn, ev Evidence, prev Review) ([]NewRecord
 	case Grounding:
 		c.grounding(h)
 	case Hypotheses:
-		c.hypotheses(h)
+		c.hypotheses(h, prev.CarriedMeasures)
 	case Experimentation:
 		c.experimentation(h)
 	case Validation:
@@ -185,8 +175,13 @@ func (c *converter) grounding(h HandIn) {
 // hypotheses cite the study's Grounding items by their record key, the
 // study's attached files by the calls that read them, and other recorded
 // sources by the calls that returned them.
-func (c *converter) hypotheses(h HandIn) {
+func (c *converter) hypotheses(h HandIn, carried []review.Measure) {
 	for i, x := range h.Hypotheses {
+		if m := x.Measure; m != nil && slices.ContainsFunc(carried, func(old review.Measure) bool {
+			return old.ID == m.ID && old != *m
+		}) {
+			c.problem("hypothesis %d: measure id %q already stands from the previous review with a different name or unit", i+1, m.ID)
+		}
 		cites, ok := []string{}, true
 		for _, id := range x.Cites {
 			if key, g := c.ev.Grounding(id); g {
@@ -226,7 +221,7 @@ func (c *converter) experimentation(h HandIn) {
 		c.problem("a done Experimentation hand-in needs at least one value or output")
 	}
 	for i, o := range h.Outputs {
-		if !c.ev.Saved(o) {
+		if !c.ev.Saved(o) && !slices.ContainsFunc(h.Values, func(v Value) bool { return v.hasBinding() && v.File == o }) {
 			c.problem("output %d: %s was not saved in this study", i+1, o)
 		}
 	}
@@ -235,6 +230,18 @@ func (c *converter) experimentation(h HandIn) {
 		c.item("outputs", 1, review.KindOutputs, review.OutputsBody{Files: h.Outputs})
 	}
 	for i, v := range h.Values {
+		if v.hasBinding() {
+			// Keep the claim as supplied. The review checks the exact run,
+			// file and field together and can send back a failed binding.
+			cites := []string{}
+			if run := strings.TrimSpace(deref(v.Run)); run != "" {
+				cites = append(cites, run)
+			}
+			c.recs = append(c.recs, NewRecord{Kind: "value", Body: review.ValueBody{
+				Name: v.Name, Value: v.Value, File: v.File, Cites: cites, Field: v.Field, Measure: v.Measure,
+			}})
+			continue
+		}
 		file := v.File
 		runs := c.ev.Scripts(file)
 		scriptRun := false
@@ -259,7 +266,7 @@ func (c *converter) experimentation(h HandIn) {
 			if runs == nil {
 				runs = []string{}
 			}
-			c.recs = append(c.recs, NewRecord{Kind: "value", Body: valueBody{Name: v.Name, Value: v.Value, File: file, Cites: runs, ScriptRun: scriptRun}})
+			c.recs = append(c.recs, NewRecord{Kind: "value", Body: review.ValueBody{Name: v.Name, Value: v.Value, File: file, Cites: runs, ScriptRun: scriptRun}})
 		}
 	}
 }
@@ -390,7 +397,7 @@ func (c *converter) replies(rs []Reply, prev Review) {
 			// same value by its displayed label or earlier identity.
 			if c.column == board.Experimentation && failed[id] != "" {
 				matched := slices.ContainsFunc(c.recs, func(rec NewRecord) bool {
-					v, ok := rec.Body.(valueBody)
+					v, ok := rec.Body.(review.ValueBody)
 					return ok && failed[identity(v.Name)] == failed[id]
 				})
 				if matched {

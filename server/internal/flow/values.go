@@ -198,6 +198,21 @@ func roundTo(r *big.Rat, d int) *big.Rat {
 	return new(big.Rat).SetFrac(q, scale)
 }
 
+// precision is -1 for integers, whose reported value must match exactly.
+func (n number) precision() int {
+	if n.integer {
+		return -1
+	}
+	return n.places
+}
+
+func roundAsReported(r *big.Rat, places int) *big.Rat {
+	if places < 0 {
+		return r
+	}
+	return roundTo(r, places)
+}
+
 // MatchValues checks each reported value in recs against the runs its record
 // cites. A value is a JSON number or a numeric string under a `value` field,
 // or in a `values` list, at any depth of a record's body, checked against the
@@ -247,10 +262,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 	toks := map[src][]*big.Rat{}
 	printed := map[at]map[string]bool{}
 	in := func(file bool, k string, n number) bool {
-		key := at{file, k, n.places}
-		if n.integer {
-			key.places = -1
-		}
+		key := at{file, k, n.precision()}
 		set, ok := printed[key]
 		if !ok {
 			t, ok := toks[src{file, k}]
@@ -264,10 +276,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 			}
 			set = map[string]bool{}
 			for _, r := range t {
-				if key.places >= 0 {
-					r = roundTo(r, key.places)
-				}
-				set[r.RatString()] = true
+				set[roundAsReported(r, key.places).RatString()] = true
 			}
 			printed[key] = set
 		}

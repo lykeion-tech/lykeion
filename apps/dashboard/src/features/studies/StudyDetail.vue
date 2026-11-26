@@ -929,7 +929,12 @@ function pin() {
           :key="`${workspaceId}:${id}`"
           :card-id="id"
         />
-        <StudyReview v-else-if="active === 'review'" :card-id="id" :request="reviewRequest" />
+        <StudyReview
+          v-else-if="active === 'review'"
+          :card-id="id"
+          :request="reviewRequest"
+          @open-output="previewOutput"
+        />
         <StudyNotebook
           v-else-if="active === 'notebook'"
           :card-id="id"

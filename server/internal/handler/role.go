@@ -93,6 +93,17 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	if in.Kind == review.KindHypothesis {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(in.Body, &fields) == nil {
+			for key, raw := range fields {
+				if (strings.EqualFold(key, "measure") || strings.EqualFold(key, "comparison")) && !bytes.Equal(raw, []byte("null")) {
+					writeErr(w, 400, "submit hypothesis measures and comparisons through a Hypotheses hand-in")
+					return
+				}
+			}
+		}
+	}
 	if in.Key != "" {
 		writeErr(w, 400, "the server gives a record its key")
 		return

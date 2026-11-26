@@ -27,9 +27,6 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-// maxOutputName is the longest name an output may have, in bytes.
-const maxOutputName = 512
-
 // A run saves at most maxRunOutputs outputs totalling maxRunOutputBytes.
 var (
 	maxRunOutputs     int32 = 100
@@ -48,7 +45,7 @@ func cleanOutputName(p string) (string, error) {
 	if p == "." {
 		return "", errOutputName
 	}
-	if len(p) > maxOutputName {
+	if len(p) > records.MaxOutputNameBytes {
 		return "", errors.New("an output's path can be at most 512 bytes")
 	}
 	return p, nil

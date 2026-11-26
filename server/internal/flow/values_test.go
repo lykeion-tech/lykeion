@@ -260,8 +260,14 @@ func TestTheProtocolTellsAgentsAboutRuns(t *testing.T) {
 			t.Errorf("no %q in:\n%s", want, s)
 		}
 	}
-	if a := Protocol("auditor", "experimentation", "", nil); !strings.Contains(a, "that each reported value appears in the output file or script run it names") {
-		t.Errorf("the auditor is not told to check values:\n%s", a)
+	a := Protocol("auditor", "experimentation", "", nil)
+	for _, want := range []string{
+		"that each reported value appears in the output file or script run it names",
+		"check the exact JSON field in the cited script's saved output and the accepted hypothesis measure",
+	} {
+		if !strings.Contains(a, want) {
+			t.Errorf("the auditor is not told to check %q:\n%s", want, a)
+		}
 	}
 }
 

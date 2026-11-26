@@ -178,7 +178,10 @@ func (h *H) daemonClaim(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	got, err := h.AgentRuns.Claim(r.Context(), user(r), in.Runtimes, in.Slots, service.ClaimOptions{GuestIsolation: in.GuestIsolation, CoresearchOnly: in.CoresearchOnly})
+	got, err := h.AgentRuns.Claim(r.Context(), user(r), in.Runtimes, in.Slots, service.ClaimOptions{
+		GuestIsolation: in.GuestIsolation, CoresearchOnly: in.CoresearchOnly,
+		OutputAttestation: r.URL.Query().Get("output_attestation"),
+	})
 	if err != nil {
 		agentRunFail(w, r, err)
 		return

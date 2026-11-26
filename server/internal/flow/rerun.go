@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
@@ -29,9 +30,10 @@ import (
 )
 
 const (
-	noScriptNote    = "no recorded script run produced this value"
-	environmentNote = "the saved package list could not be rebuilt"
-	rerunFailedNote = "the rerun failed before reporting a result"
+	noScriptNote             = "no recorded script run produced this value"
+	environmentNote          = "the saved package list could not be rebuilt"
+	rerunFailedNote          = "the rerun failed before reporting a result"
+	missingBoundReplayOutput = "the replayed script did not produce the cited JSON output"
 )
 
 // RerunStepResult is one replayed script as the daemon reports it, under the
@@ -55,9 +57,10 @@ type RerunOutput struct {
 // step ran, "environment" when the saved package list could not be rebuilt,
 // or an infrastructure failure, which the harness retries.
 type RerunResult struct {
-	Steps   []RerunStepResult `json:"steps"`
-	Outputs []RerunOutput     `json:"outputs"`
-	Failure *string           `json:"failure"`
+	Steps         []RerunStepResult `json:"steps"`
+	Outputs       []RerunOutput     `json:"outputs"`
+	Failure       *string           `json:"failure"`
+	ScopedOutputs bool              `json:"scoped_outputs,omitempty"`
 }
 
 // rerunBody is the server's `rerun` record: what each replayed step did;
@@ -65,12 +68,15 @@ type RerunResult struct {
 // assessed hypothesis's text, trimmed, whether the rerun printed the test
 // its assessment reports.
 type rerunBody struct {
-	Steps      []rerunStep       `json:"steps"`
-	Outputs    []RerunOutput     `json:"outputs"`
-	Reproduced map[string]bool   `json:"reproduced"`
-	Notes      map[string]string `json:"notes"`
-	Printed    []string          `json:"printed"` // every number the rerun printed, as exact fractions
-	Failure    *string           `json:"failure"`
+	Steps         []rerunStep       `json:"steps"`
+	Outputs       []RerunOutput     `json:"outputs"`
+	Reproduced    map[string]bool   `json:"reproduced"`
+	Notes         map[string]string `json:"notes"`
+	Unavailable   map[string]bool   `json:"unavailable,omitempty"`
+	ScopedOutputs bool              `json:"scoped_outputs,omitempty"`
+	BoundValues   map[string]string `json:"bound_values,omitempty"`
+	Printed       []string          `json:"printed"` // every number the rerun printed, as exact fractions
+	Failure       *string           `json:"failure"`
 }
 
 type rerunStep struct {
@@ -120,6 +126,8 @@ func replayEvidence(rec db.Record) string {
 	for _, name := range slices.Sorted(maps.Keys(body.Reproduced)) {
 		if body.Reproduced[name] {
 			lines = append(lines, fmt.Sprintf("Measurement %q was reproduced", name))
+		} else if body.Unavailable[name] {
+			lines = append(lines, fmt.Sprintf("Measurement %q could not be checked: %s", name, body.Notes[name]))
 		} else {
 			lines = append(lines, fmt.Sprintf("Measurement %q was not reproduced: %s", name, body.Notes[name]))
 		}
@@ -175,7 +183,11 @@ func (e *Engine) startRerun(ctx context.Context, tx *store.Tx, c db.Card) error 
 				}
 			}
 		}
-		run, err := e.AgentRuns.EnqueueRerun(ctx, tx, c.OwnerID, c.ID, c.Round)
+		requiresOutputAttestation, err := frozenComparisonRequiresAttestation(ctx, tx, c.ID)
+		if err != nil {
+			return err
+		}
+		run, err := e.AgentRuns.EnqueueRerun(ctx, tx, c.OwnerID, c.ID, c.Round, requiresOutputAttestation)
 		if err != nil {
 			return err
 		}
@@ -213,6 +225,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		return err
 	}
 	var exp, saved []db.Record
+	var measures map[string]review.Measure
 	var claimed []service.RerunStep
 	done := false
 	tolerance := 0.0
@@ -234,6 +247,13 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 			return err
 		}
 		exp, claimed = st.Values, st.RerunSteps()
+		if slices.ContainsFunc(exp, func(r db.Record) bool { return hasBinding(valueOf(r)) }) {
+			hyps, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: board.Hypotheses})
+			if err != nil {
+				return err
+			}
+			measures = handin.AcceptedMeasures(hyps)
+		}
 		_, m, err := columnTeam(ctx, tx, *t.CardID, board.Experimentation)
 		if err == nil {
 			tolerance = m.Validation.Tolerance
@@ -250,7 +270,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		in.Steps = slices.DeleteFunc(in.Steps, func(s RerunStepResult) bool {
 			return !slices.ContainsFunc(claimed, func(c service.RerunStep) bool { return c.Key == s.Key })
 		})
-		body, err := e.rerunRecord(ctx, exp, saved, in, tolerance)
+		body, err := e.rerunRecord(ctx, exp, saved, claimed, in, tolerance, measures)
 		if err != nil {
 			return err
 		}
@@ -308,8 +328,8 @@ func (e *Engine) afterRerun(ctx context.Context, t db.AgentRun) error {
 // values in exp and keeping every number it printed, for the tests the
 // lead's assessments report, which may come later. The saved files it names
 // must be outputs this rerun uploaded, with the text it names.
-func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, in RerunResult, tolerance float64) (rerunBody, error) {
-	body := rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Printed: []string{}, Failure: in.Failure}
+func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, plan []service.RerunStep, in RerunResult, tolerance float64, measures map[string]review.Measure) (rerunBody, error) {
+	body := rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Printed: []string{}, Failure: in.Failure, ScopedOutputs: in.ScopedOutputs}
 	steps := map[string]RerunStepResult{}
 	for _, s := range in.Steps {
 		steps[s.Key] = s
@@ -347,25 +367,77 @@ func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, in Rer
 	files := map[string]string{}
 	for _, r := range kept {
 		if text, ok := texts[r.Key]; ok {
-			files[records.Body[struct{ Name string }](r).Name] = text
+			meta := records.Body[struct{ Name, SHA256 string }](r)
+			if hashText(text) == meta.SHA256 {
+				files[meta.Name] = text
+			}
 		}
 	}
-	body.Reproduced, body.Notes = reproduce(exp, steps, files, tolerance)
+	body.Reproduced, body.Notes, body.BoundValues = reproduce(exp, steps, files, tolerance, measures)
+	if !in.ScopedOutputs {
+		body.markLegacyReplayUnavailable(exp, plan, steps, files)
+	}
 	body.Printed = printedNumbers(steps, files)
 	return body, nil
 }
 
-// printedNumbers is every number the steps that succeeded and the saved
-// files printed, once each, as exact fractions.
+// markLegacyReplayUnavailable distinguishes a lost intermediate artifact from
+// a replay that attested the measured field and produced a different result.
+func (body *rerunBody) markLegacyReplayUnavailable(exp []db.Record, plan []service.RerunStep, steps map[string]RerunStepResult, files map[string]string) {
+	lastWriter := map[string]string{}
+	for _, planned := range plan {
+		if step, ok := steps[planned.Key]; ok && step.ExitStatus == 0 {
+			for _, path := range planned.OutputPaths {
+				lastWriter[path] = planned.Key
+			}
+		}
+	}
+	for _, r := range exp {
+		v := valueOf(r)
+		if r.Kind != "value" || !hasBinding(v) || len(v.Cites) != 1 || body.Notes[v.Name] != missingBoundReplayOutput {
+			continue
+		}
+		key, cited := strings.CutPrefix(v.Cites[0], "run:")
+		step, ran := steps[key]
+		_, final := files[v.File]
+		_, scoped := files[service.ReplayOutputName(key, v.File)]
+		if cited && ran && step.ExitStatus == 0 && final && !scoped && lastWriter[v.File] != "" && lastWriter[v.File] != key {
+			if body.Unavailable == nil {
+				body.Unavailable = map[string]bool{}
+			}
+			body.Unavailable[v.Name] = true
+			body.Notes[v.Name] = fmt.Sprintf("the older replay saved only the final copy of %s, so the cited execution's output could not be verified", v.File)
+		}
+	}
+}
+
+// printedNumbers returns the replay's recorded numbers as exact fractions.
+// If a script failed, saved file bytes need an attestation from a successful step.
 func printedNumbers(steps map[string]RerunStepResult, files map[string]string) []string {
 	var texts []string
+	failed := false
 	for _, s := range steps {
 		if s.ExitStatus == 0 {
 			texts = append(texts, s.Output)
+		} else {
+			failed = true
 		}
 	}
-	for _, f := range files {
-		texts = append(texts, f)
+	if failed {
+		for key, s := range steps {
+			if s.ExitStatus != 0 {
+				continue
+			}
+			for name, hash := range s.OutputHashes {
+				if text, ok := replayedOutput(files, key, name, hash); ok {
+					texts = append(texts, text)
+				}
+			}
+		}
+	} else {
+		for _, f := range files {
+			texts = append(texts, f)
+		}
 	}
 	seen := map[string]bool{}
 	for _, text := range texts {
@@ -432,7 +504,8 @@ func noneReproduced(recs []db.Record, note string) (map[string]bool, map[string]
 // digits, the rule the Experimentation check uses, or lies within tolerance
 // of it, relative to it. A value reported under one name more than once is
 // reproduced only when each is.
-func reproduce(recs []db.Record, steps map[string]RerunStepResult, files map[string]string, tolerance float64) (map[string]bool, map[string]string) {
+func reproduce(recs []db.Record, steps map[string]RerunStepResult, files map[string]string, tolerance float64, measures map[string]review.Measure) (map[string]bool, map[string]string, map[string]string) {
+	bound := map[string]string{}
 	ok, notes := map[string]bool{}, map[string]string{}
 	for _, r := range recs {
 		if r.Kind != "value" {
@@ -442,13 +515,39 @@ func reproduce(recs []db.Record, steps map[string]RerunStepResult, files map[str
 		if prev, seen := ok[v.Name]; seen && !prev {
 			continue
 		}
-		yes, note := reproduced(v, steps, files, tolerance)
+		var yes bool
+		var note string
+		if hasBinding(v) {
+			var m review.Measure
+			if v.Measure != nil {
+				m = measures[*v.Measure]
+			}
+			raw, why := replayBound(v, steps, files, m, tolerance)
+			note, yes = why, raw != ""
+			if yes {
+				bound[r.Key] = raw
+			}
+		} else {
+			yes, note = reproduced(v, steps, files, tolerance)
+		}
 		ok[v.Name] = yes
 		if !yes {
 			notes[v.Name] = note
 		}
 	}
-	return ok, notes
+	return ok, notes, bound
+}
+
+// replayedOutput accepts the saved bytes only when the execution attested them.
+func replayedOutput(files map[string]string, key, name, hash string) (string, bool) {
+	if hash == "" {
+		return "", false
+	}
+	text, ok := files[service.ReplayOutputName(key, name)]
+	if !ok {
+		text, ok = files[name] // Older daemons saved the final file at its original path.
+	}
+	return text, ok && hashText(text) == hash
 }
 
 // reproduced checks one value. When it was not reproduced, the note names
@@ -463,17 +562,19 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 	if len(v.Cites) == 0 {
 		return false, noScriptNote
 	}
-	step, ok := steps[strings.TrimPrefix(v.Cites[0], "run:")]
+	key := strings.TrimPrefix(v.Cites[0], "run:")
+	step, ok := steps[key]
 	if !ok {
 		return false, noScriptNote
 	}
 	if step.ExitStatus != 0 {
 		return false, fmt.Sprintf("rerun exited with status %d before reproducing %s", step.ExitStatus, v.Value)
 	}
-	if text, found := files[v.File]; found && !v.ScriptRun {
-		sum := sha256.Sum256([]byte(text))
-		// Older daemons can identify a file's producer only when one step ran.
-		if step.OutputHashes[v.File] == hex.EncodeToString(sum[:]) || step.OutputHashes == nil && len(steps) == 1 {
+	if !v.ScriptRun {
+		if text, found := replayedOutput(files, key, v.File, step.OutputHashes[v.File]); found {
+			texts = append(texts, text)
+		} else if text, found := files[v.File]; found && step.OutputHashes == nil && len(steps) == 1 {
+			// Daemons without hashes can identify a producer only when one step ran.
 			texts = append(texts, text)
 		}
 	}
@@ -497,10 +598,7 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 	for _, text := range texts {
 		found := false
 		eachToken(text, func(start int, t *big.Rat) bool {
-			at := t
-			if !n.integer {
-				at = roundTo(t, n.places)
-			}
+			at := roundAsReported(t, n.precision())
 			d := new(big.Rat).Abs(new(big.Rat).Sub(t, n.r))
 			if at.Cmp(n.r) == 0 || d.Cmp(tol) <= 0 {
 				found = true

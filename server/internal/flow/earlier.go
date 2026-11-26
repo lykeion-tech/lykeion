@@ -8,8 +8,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/fence"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/store"
@@ -47,7 +50,13 @@ func earlierWork(ctx context.Context, tx *store.Tx, c db.Card) (string, error) {
 	}
 	var lines []string
 	for k, col := range board.Stages[i:j] {
-		if ls := handedIn(cols[k], standing(cols[k]), grounding); len(ls) > 0 {
+		var items []db.Record
+		if col == board.Hypotheses {
+			items = handin.StandingHypotheses(cols[k])
+		} else {
+			items = standing(cols[k])
+		}
+		if ls := handedIn(cols[k], items, grounding); len(ls) > 0 {
 			lines = append(lines, title(col)+":")
 			lines = append(lines, ls...)
 		}
@@ -106,7 +115,6 @@ func handedIn(recs, items, grounding []db.Record) []string {
 // itemLines renders items in plain language. recs are the column's records,
 // whose lead hand-ins hold the ids a hypothesis was handed in with.
 func itemLines(items, recs, grounding []db.Record) []string {
-	cites := handedInCites(recs)
 	var lines []string
 	for _, r := range items {
 		switch r.Kind {
@@ -120,7 +128,7 @@ func itemLines(items, recs, grounding []db.Record) []string {
 			lines = append(lines, "- Nothing qualifies: "+oneLine(records.Body[review.NoQualifyingBody](r).Text))
 		case review.KindHypothesis:
 			b := records.Body[review.HypothesisBody](r)
-			ids, ok := cites[review.IdentityOf(r)]
+			ids, ok := handedInCites(recs, r)
 			if !ok {
 				ids = groundingIDs(b.Cites, grounding)
 			}
@@ -129,25 +137,23 @@ func itemLines(items, recs, grounding []db.Record) []string {
 			lines = append(lines, "- Output files: "+strings.Join(records.Body[review.OutputsBody](r).Files, ", "))
 		case "value":
 			v := valueOf(r)
-			lines = append(lines, fmt.Sprintf("- Value %s = %s, shown in %s", oneLine(v.Name), v.Value, v.File))
+			line := fmt.Sprintf("- Value %s = %s, shown in %s", oneLine(v.Name), v.Value, v.File)
+			if v.Measure != nil && v.Field != nil {
+				line += fmt.Sprintf(", measure %s at JSON Pointer %q", *v.Measure, *v.Field)
+			}
+			lines = append(lines, line)
 		}
 	}
 	return lines
 }
 
-type valueRecord struct {
-	Name      string `json:"name"`
-	Value     string `json:"value"`
-	File      string `json:"file"`
-	ScriptRun bool   `json:"script_run,omitempty"`
-	// Cites are the script runs of File, written run:KEY.
-	Cites []string `json:"cites"`
-}
+type valueRecord = review.ValueBody
 
 func valueOf(r db.Record) valueRecord { return records.Body[valueRecord](r) }
 
 type leadHandIn struct {
-	HandIn struct {
+	ConvertedRecords []uuid.UUID `json:"converted_records"`
+	HandIn           struct {
 		Hypotheses []struct {
 			Text  string   `json:"text"`
 			Cites []string `json:"cites"`
@@ -155,19 +161,37 @@ type leadHandIn struct {
 	} `json:"hand_in"`
 }
 
-// handedInCites maps each hypothesis a lead handed in, by identity, to the
-// ids it cited.
-func handedInCites(recs []db.Record) map[string][]string {
-	out := map[string][]string{}
+// handedInCites reads the raw citation identifiers from the hand-in that
+// created this declaration. Legacy hand-ins may lack a record link.
+func handedInCites(recs []db.Record, hypothesis db.Record) ([]string, bool) {
+	identity := review.IdentityOf(hypothesis)
+	var legacy []string
+	legacyMatches := 0
 	for _, r := range recs {
-		if r.Kind != "hand_in" || !slices.Contains([]string{"leader", "agent"}, r.Role) {
+		if r.Kind != "hand_in" || !handin.Leads(r.Role) || r.Round != hypothesis.Round || r.Role != hypothesis.Role ||
+			r.BoardColumn != hypothesis.BoardColumn || !sameRun(r.AgentRunID, hypothesis.AgentRunID) {
 			continue
 		}
-		for _, h := range records.Body[leadHandIn](r).HandIn.Hypotheses {
-			out[strings.ToLower(strings.Join(strings.Fields(h.Text), " "))] = h.Cites
+		h := records.Body[leadHandIn](r)
+		if h.ConvertedRecords != nil {
+			// A Hypotheses hand-in writes its declarations in order before replies and summary.
+			i := slices.Index(h.ConvertedRecords, hypothesis.ID)
+			if i >= 0 && i < len(h.HandIn.Hypotheses) && strings.ToLower(oneLine(h.HandIn.Hypotheses[i].Text)) == identity {
+				return h.HandIn.Hypotheses[i].Cites, true
+			}
+			continue
+		}
+		for _, item := range h.HandIn.Hypotheses {
+			if strings.ToLower(oneLine(item.Text)) == identity {
+				legacy, legacyMatches = item.Cites, legacyMatches+1
+			}
 		}
 	}
-	return out
+	return legacy, legacyMatches == 1
+}
+
+func sameRun(a, b *uuid.UUID) bool {
+	return a == b || a != nil && b != nil && *a == *b
 }
 
 // groundingIDs are the ids of the Grounding papers and datasets among keys;
@@ -192,10 +216,21 @@ func hypothesisLine(b review.HypothesisBody, ids []string) string {
 		fmt.Fprintf(&s, " Predicts: %s.", strings.ReplaceAll(p.Direction, "_", " "))
 	case "outcomes":
 		fmt.Fprintf(&s, " Predicts %s, of %s.", p.Chosen, strings.Join(p.Outcomes, ", "))
+		if c := b.Comparison; c != nil {
+			if c.Threshold != nil {
+				fmt.Fprintf(&s, " Compare with frozen threshold %s.", c.Threshold)
+			} else if c.Control != nil {
+				fmt.Fprintf(&s, " Compare with bound control value %q.", *c.Control)
+			}
+			fmt.Fprintf(&s, " Outcome labels: less %q, equal %q, greater %q.", c.Less, c.Equal, c.Greater)
+		}
 	case "range":
 		if p.Low != nil && p.High != nil {
 			fmt.Fprintf(&s, " Predicts %s to %s (%s).", strconv.FormatFloat(*p.Low, 'g', -1, 64), strconv.FormatFloat(*p.High, 'g', -1, 64), p.Uncertainty)
 		}
+	}
+	if b.Measure != nil && b.Measure.Valid() {
+		fmt.Fprintf(&s, " Measure %s: %s (%s).", b.Measure.ID, oneLine(b.Measure.Name), oneLine(b.Measure.Unit))
 	}
 	if b.Control.Text != "" {
 		fmt.Fprintf(&s, " Control: %s.", oneLine(b.Control.Text))

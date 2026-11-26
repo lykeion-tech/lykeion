@@ -304,3 +304,24 @@ func TestDaemonHandInAcceptsLargeQuestionSetAtLimit(t *testing.T) {
 		t.Fatalf("accepted hand-ins %d", n)
 	}
 }
+
+func TestRoleRecordsRequireHandInForHypothesisMeasure(t *testing.T) {
+	l := newTeamLab(t, 0)
+	lead := l.claim(t)
+	l.record(t, lead, 0, "call", "c1", map[string]any{"answer": "doi:10.1001/a"}, &lead.id)
+	body := map[string]any{
+		"text": "Accuracy increases.", "prediction": map[string]any{"shape": "direction", "direction": "increase"},
+		"control": map[string]any{"text": "baseline"}, "cites": []string{"call:c1"},
+	}
+	post := func(want int) {
+		t.Helper()
+		if got := l.s.call(t, "POST", "/api/role/records", lead.token, "", map[string]any{"kind": "hypothesis", "body": body}, nil); got != want {
+			t.Errorf("direct hypothesis status = %d, want %d for body %v", got, want, body)
+		}
+	}
+	post(http.StatusCreated)
+	body["measure"] = nil
+	post(http.StatusCreated)
+	body["measure"] = map[string]string{"id": "accuracy", "name": "Accuracy", "unit": "percent"}
+	post(http.StatusBadRequest)
+}

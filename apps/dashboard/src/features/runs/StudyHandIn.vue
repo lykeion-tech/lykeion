@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
-import { useKindRecords } from '../../api/queries';
+import { useCardReview, useKindRecords } from '../../api/queries';
+import { measurementText, objectFields } from '../../lib/measurement';
+import { acceptedMeasures } from './study-hand-in';
 import StudyFileThumbnail from '../studies/StudyFileThumbnail.vue';
 
 const RecordedMarkdown = lazyRecordedMarkdown();
@@ -34,6 +36,35 @@ const files = computed(() =>
     ),
   })),
 );
+const wantsMeasures = computed(
+  () =>
+    props.column === 'experimentation' &&
+    Array.isArray(props.handIn.values) &&
+    props.handIn.values.some((item) => typeof objectFields(item)?.measure === 'string'),
+);
+const card = () => props.cardId ?? '';
+const hypotheses = useKindRecords(card, 'hypothesis', wantsMeasures);
+const review = useCardReview(card, wantsMeasures);
+const outcomes = useKindRecords(card, 'outcome', wantsMeasures);
+const withdrawals = useKindRecords(card, 'withdrawn', wantsMeasures);
+const needsSnapshot = computed(
+  () =>
+    wantsMeasures.value &&
+    (outcomes.data.value ?? []).some(
+      (r) => r.board_column === 'hypotheses' && r.body.verdict === 'approved_by_owner',
+    ),
+);
+const snapshots = useKindRecords(card, 'server_checks', needsSnapshot);
+const measures = computed(() =>
+  acceptedMeasures(
+    hypotheses.data.value ?? [],
+    review.data.value?.find((c) => c.column === 'hypotheses')?.attempts ?? [],
+    outcomes.data.value ?? [],
+    snapshots.data.value ?? [],
+    withdrawals.data.value ?? [],
+  ),
+);
+
 const labels: Record<string, string> = {
   papers: 'Sources',
   datasets: 'Datasets',
@@ -91,6 +122,19 @@ function sourceURL(text: string): string {
   const match = /^doi:(10\.\d{4,9}\/[^\s]+)$/i.exec(text);
   return match ? `https://doi.org/${match[1]}` : '';
 }
+function itemEntries(section: string, item: unknown): [string, string][] {
+  const fields = section === 'values' ? objectFields(item) : undefined;
+  if (fields && typeof fields.measure === 'string') {
+    const text = measurementText(measures.value.get(fields.measure), fields.value);
+    if (text) {
+      const provenance = Object.fromEntries(
+        Object.entries(fields).filter(([key]) => key !== 'value' && key !== 'measure'),
+      );
+      return [['', text], ...entries(provenance)];
+    }
+  }
+  return entries(item);
+}
 function entries(value: unknown, prefix = ''): [string, string][] {
   if (value == null || value === '') return [];
   if (Array.isArray(value)) return value.flatMap((item) => entries(item, prefix));
@@ -141,7 +185,7 @@ function entries(value: unknown, prefix = ''): [string, string][] {
     >
       <summary>{{ section.label }}</summary>
       <div v-for="(item, index) in section.value" :key="index" class="hand-in-item">
-        <p v-for="([name, text], i) in entries(item)" :key="i">
+        <p v-for="([name, text], i) in itemEntries(section.key, item)" :key="i">
           <strong v-if="name">{{ name }}: </strong
           ><a v-if="sourceURL(text)" :href="sourceURL(text)">{{ text }}</a
           ><template v-else>{{ text }}</template>

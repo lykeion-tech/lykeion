@@ -1,5 +1,6 @@
 import type { ReportEdge, ReportLink, ReportNode, ReviewCheck, StudyReport } from '../../api/types';
 import { checkLabel } from '../../lib/review';
+import { measurementText, objectFields } from '../../lib/measurement';
 import { columnName, studyDisplayTitle } from '../../lib/studies';
 
 // A section shows only what the report recorded: every label, status and
@@ -210,6 +211,37 @@ export function sectionFor(report: StudyReport, nodeId: string) {
   };
 
   const folds: Fold[] = [];
+  const measurements = Array.isArray(node.measurements)
+    ? node.measurements.flatMap((measurement): Row[] => {
+        const fields = objectFields(measurement);
+        const label = measurementText(fields?.measure, fields?.value);
+        if (!fields || !label) return [];
+        const { name, field, output } = fields;
+        const source = typeof output === 'string' ? byId.get(`rec:${output}`) : undefined;
+        return [
+          {
+            kind: 'detail',
+            label,
+            detail: [
+              ...(typeof name === 'string' && name ? [{ label: 'Recorded as', text: name }] : []),
+              ...(typeof field === 'string'
+                ? [{ label: 'JSON field', text: field || '(root)' }]
+                : []),
+              ...(source?.kind === 'output' && source.id !== node.id
+                ? [{ label: 'Verified output', text: source.label, nodeId: source.id }]
+                : []),
+            ],
+          },
+        ];
+      })
+    : [];
+  if (measurements.length) {
+    folds.push({
+      title: 'Recorded measurements',
+      summary: String(measurements.length),
+      rows: measurements,
+    });
+  }
   switch (node.kind) {
     case 'finding': {
       if (node.status === 'inconclusive' || node.status === 'invalid') {

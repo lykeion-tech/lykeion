@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"lykeion/server/internal/daemon/kernels"
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/records"
 	"lykeion/server/pkg/agent"
 )
 
@@ -35,6 +37,7 @@ const (
 		"For exploring; a reported result must come from run_script. " +
 		"Pass restart: true to restart the session first, clearing its variables; with no code, only the restart happens."
 	runScriptDescription = "Run a saved script (.py, .R or .jl, a path inside your working folder) from start to finish in a fresh process, in this study's environment."
+	runScriptAttestation = " List JSON result paths in outputs to bind values to this execution."
 	// runCodeCite and runScriptCite tell a run that cites by hand how.
 	runCodeCite   = " The answer starts with run:<key>, which you may cite as run:<key>."
 	runScriptCite = " Cite the result's numbers as run:<key>, the first line of the answer."
@@ -69,8 +72,13 @@ const installNote = "If the new package doesn't load, restart the session with r
 // list of arguments such as ["pip", "install", ...].
 var installs = regexp.MustCompile(`(?i)pip3?\s+install|%pip|!pip|install\.packages\(|BiocManager::install\(|Pkg\.add\(|pip3?['"]\s*,\s*['"]install`)
 
-type runScriptIn struct {
+type runScriptLegacyIn struct {
 	Path string `json:"path" jsonschema:"the script's path, relative to your working folder"`
+}
+
+type runScriptIn struct {
+	Path    string   `json:"path" jsonschema:"the script's path, relative to your working folder"`
+	Outputs []string `json:"outputs,omitempty" jsonschema:"up to 16 distinct JSON result paths under outputs/; only files created or changed by a successful run are verified"`
 }
 
 func (d *Door) interpreter(lang string) (string, []string, error) {
@@ -517,7 +525,27 @@ func (d *Door) liveSessions(ctx context.Context) (*kernels.Sessions, error) {
 	return s, nil
 }
 
+func (d *Door) runScriptLegacy(ctx context.Context, req *mcp.CallToolRequest, in runScriptLegacyIn) (*mcp.CallToolResult, any, error) {
+	return d.runScript(ctx, req, runScriptIn{Path: in.Path})
+}
+
 func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScriptIn) (*mcp.CallToolResult, any, error) {
+	if !d.OutputAttestation {
+		in.Outputs = nil
+	}
+	if len(in.Outputs) > records.MaxScriptOutputPaths {
+		return nil, nil, fmt.Errorf("run_script accepts at most %d JSON output paths", records.MaxScriptOutputPaths)
+	}
+	seen := make(map[string]bool, len(in.Outputs))
+	for _, name := range in.Outputs {
+		if !records.ValidScriptOutputPath(name) {
+			return nil, nil, fmt.Errorf("%q must be a relative JSON file path under outputs/", name)
+		}
+		if seen[name] {
+			return nil, nil, fmt.Errorf("duplicate output path %q", name)
+		}
+		seen[name] = true
+	}
 	d.executionMu.Lock()
 	defer d.executionMu.Unlock()
 	lang, ok := scriptLanguages[filepath.Ext(in.Path)]
@@ -541,17 +569,32 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 		d.recordEnvironmentError(lang, err)
 		return nil, nil, fmt.Errorf("reading the study's package list: %w", err)
 	}
+	var root *os.Root
+	var before map[string]string
+	if len(in.Outputs) > 0 {
+		root, err = os.OpenRoot(d.Child().Dir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("opening the run folder to check its outputs: %w", err)
+		}
+		defer root.Close()
+		before = scriptOutputHashes(root, in.Outputs)
+	}
 	output, errText, status, err := d.execScript(ctx, d.Study, in.Path, lang, string(contents))
 	if err != nil {
 		d.recordEnvironmentError(lang, err)
 		return nil, nil, err
 	}
+	body := map[string]any{"tool": "run_script", "language": lang, "path": in.Path, "script": string(contents),
+		"output": output, "error": errText, "exit_status": status, "packages": packages}
+	if root != nil && status == 0 {
+		hashes := scriptOutputHashes(root, in.Outputs)
+		maps.DeleteFunc(hashes, func(name, hash string) bool { return before[name] == hash })
+		body["output_hashes"] = hashes
+	}
 	d.clearReadyEnvironment(lang)
 	if err := d.Study.CheckDefaultPython(ctx); err != nil {
 		return nil, nil, err
 	}
-	body := map[string]any{"tool": "run_script", "language": lang, "path": in.Path, "script": string(contents),
-		"output": output, "error": errText, "exit_status": status, "packages": packages}
 	return d.answerRun(ctx, body)
 }
 
@@ -698,6 +741,13 @@ func (d *Door) answerRun(ctx context.Context, body map[string]any) (*mcp.CallToo
 		answer += "\n[stderr]\n" + e
 	}
 	if key != "" {
+		if hashes, hasManifest := body["output_hashes"].(map[string]string); hasManifest {
+			if len(hashes) == 0 {
+				answer += "\n[No declared JSON output changed. Write the result to a fresh path under outputs/.]"
+			} else {
+				answer += fmt.Sprintf("\n[Changed JSON outputs: %q]", slices.Sorted(maps.Keys(hashes)))
+			}
+		}
 		answer = "run:" + key + "\n" + answer
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: answer}}}, nil, nil

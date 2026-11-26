@@ -49,15 +49,16 @@ func studyPackages(packages, language string) string {
 // blob.created events committed with the record make them readable.
 func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Tool       string `json:"tool"`
-		Language   string `json:"language"`
-		Code       string `json:"code"`
-		Path       string `json:"path"`
-		Script     string `json:"script"`
-		Output     string `json:"output"`
-		Error      string `json:"error"`
-		ExitStatus *int   `json:"exit_status"`
-		Packages   string `json:"packages"`
+		Tool         string            `json:"tool"`
+		Language     string            `json:"language"`
+		Code         string            `json:"code"`
+		Path         string            `json:"path"`
+		Script       string            `json:"script"`
+		Output       string            `json:"output"`
+		Error        string            `json:"error"`
+		ExitStatus   *int              `json:"exit_status"`
+		Packages     string            `json:"packages"`
+		OutputHashes map[string]string `json:"output_hashes"`
 		// Older daemons still send these; they are read and dropped.
 		Results      json.RawMessage `json:"results"`
 		ResultsError string          `json:"results_error"`
@@ -88,6 +89,26 @@ func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "exit_status is required")
 		return
 	}
+	if in.OutputHashes != nil {
+		if in.Tool != "run_script" || *in.ExitStatus != 0 {
+			writeErr(w, 400, "only successful script runs can record output hashes")
+			return
+		}
+		if len(in.OutputHashes) > records.MaxScriptOutputPaths {
+			writeErr(w, 400, "too many script output hashes")
+			return
+		}
+		for name, hash := range in.OutputHashes {
+			if !records.ValidScriptOutputPath(name) || len(hash) != 2*sha256.Size || strings.ToLower(hash) != hash {
+				writeErr(w, 400, "invalid script output path or SHA-256")
+				return
+			}
+			if _, err := hex.DecodeString(hash); err != nil {
+				writeErr(w, 400, "invalid script output SHA-256")
+				return
+			}
+		}
+	}
 	role := middleware.RoleFrom(r.Context())
 	if role.CardID == uuid.Nil {
 		// a run with no card keeps no run record
@@ -110,6 +131,9 @@ func (h *H) postRun(w http.ResponseWriter, r *http.Request) {
 		body["code"] = in.Code
 	} else {
 		body["path"], body["script"], body["script_sha256"] = in.Path, in.Script, hexSHA(in.Script)
+		if in.OutputHashes != nil {
+			body["output_hashes"] = in.OutputHashes
+		}
 	}
 	// the whole texts a body keeps only part of, and the package list, by sha256
 	blobs := map[string]string{}

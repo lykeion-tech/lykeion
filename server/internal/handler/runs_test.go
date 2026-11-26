@@ -95,6 +95,44 @@ func TestRunKeysAreSequentialAndApartFromCalls(t *testing.T) {
 	}
 }
 
+func TestSuccessfulScriptRunKeepsJSONOutputHashes(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	hash := hexSHA("{\"m\":3}")
+	var out struct{ Key string }
+	in := map[string]any{
+		"tool": "run_script", "language": "python", "path": "measure.py", "exit_status": 0,
+		"output_hashes": map[string]string{"outputs/metric.json": hash},
+	}
+	if code := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, &out); code != 201 {
+		t.Fatalf("record script: %d", code)
+	}
+	_, body := l.runRecord(t, leader.token, out.Key)
+	hashes, ok := body["output_hashes"].(map[string]any)
+	if !ok || len(hashes) != 1 || hashes["outputs/metric.json"] != hash {
+		t.Fatalf("recorded manifest %v", body["output_hashes"])
+	}
+
+	for _, test := range []struct {
+		name, tool, path, digest string
+		exit                     int
+	}{
+		{"cell", "run_code", "outputs/metric.json", hash, 0},
+		{"failed", "run_script", "outputs/metric.json", hash, 1},
+		{"relative", "run_script", "outputs/../metric.json", hash, 0},
+		{"wrong format", "run_script", "outputs/metric.csv", hash, 0},
+		{"invalid digest", "run_script", "outputs/metric.json", strings.Repeat("x", 64), 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			in["tool"], in["exit_status"] = test.tool, test.exit
+			in["output_hashes"] = map[string]string{test.path: test.digest}
+			if code := l.s.call(t, "POST", "/api/role/runs", leader.callToken, "", in, nil); code != 400 {
+				t.Fatalf("accepted invalid manifest: %d", code)
+			}
+		})
+	}
+}
+
 func TestALongRunOutputGoesWholeToABlob(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)

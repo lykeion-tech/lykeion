@@ -52,14 +52,20 @@ func (q *Queries) BindCommentReservations(ctx context.Context, arg BindCommentRe
 }
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, t.lab_purpose, t.pinned_runtime_id, t.first_started_at, t.legacy_unverified_started, a.name AS agent_name,
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, t.lab_purpose, t.pinned_runtime_id, t.first_started_at, t.legacy_unverified_started, t.requires_output_attestation, a.name AS agent_name,
   COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
   m.created_at AS last_activity_at,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('attempt', rc.attempt, 'failure_reason', COALESCE(rc.result->>'failure_reason', ''),
       'machine', COALESCE(rc.result->>'machine_name', rt.custom_name, rt.device_name, '')) ORDER BY rc.attempt)
     FROM agent_run_receipt rc LEFT JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
     WHERE rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt < t.attempt), '[]')::jsonb AS attempt_ends,
-  COALESCE(agent_run_waiting(t.workspace_id, t.id), '')::text AS waiting,
+  -- Frozen reruns use queue_reason for machine availability because they have no CLI.
+  COALESCE(CASE WHEN t.kind <> 'rerun' OR NOT t.requires_output_attestation THEN agent_run_waiting(t.workspace_id, t.id) END,
+    CASE WHEN t.status = 'queued' AND t.requires_output_attestation THEN
+      CASE WHEN t.queue_reason = 'runtime_offline' THEN 'Waiting for a machine: reconnect the daemon.'
+        ELSE 'Waiting for a daemon with output attestation. Upgrade if the daemon does not support frozen comparisons.' END
+    END,
+    '')::text AS waiting,
   COALESCE(h.body->'hand_in'->>'answer', '')::text AS answer,
   h.body->'hand_in' AS hand_in,
   COALESCE(h.id::text, '')::text AS hand_in_id,
@@ -84,69 +90,70 @@ type CardAgentRunsParams struct {
 }
 
 type CardAgentRunsRow struct {
-	ID                      uuid.UUID       `json:"id"`
-	WorkspaceID             uuid.UUID       `json:"workspace_id"`
-	CardID                  *uuid.UUID      `json:"card_id"`
-	ResponsibleUserID       uuid.UUID       `json:"responsible_user_id"`
-	BoardColumn             string          `json:"board_column"`
-	Round                   int32           `json:"round"`
-	Role                    string          `json:"role"`
-	Harness                 string          `json:"harness"`
-	Prompt                  string          `json:"prompt"`
-	Skill                   string          `json:"skill"`
-	Status                  string          `json:"status"`
-	QueueReason             *string         `json:"queue_reason"`
-	RuntimeID               *uuid.UUID      `json:"runtime_id"`
-	PrepareLeaseExpiresAt   *time.Time      `json:"prepare_lease_expires_at"`
-	DispatchedAt            *time.Time      `json:"dispatched_at"`
-	StartedAt               *time.Time      `json:"started_at"`
-	CompletedAt             *time.Time      `json:"completed_at"`
-	Attempt                 int32           `json:"attempt"`
-	MaxAttempts             int32           `json:"max_attempts"`
-	SessionID               string          `json:"session_id"`
-	ContinuityScope         string          `json:"continuity_scope"`
-	ProfileMode             string          `json:"profile_mode"`
-	PolicyDigest            string          `json:"policy_digest"`
-	Model                   string          `json:"model"`
-	Error                   string          `json:"error"`
-	FailureReason           *string         `json:"failure_reason"`
-	CostUsd                 float64         `json:"cost_usd"`
-	LateUsageAt             *time.Time      `json:"late_usage_at"`
-	CreatedAt               time.Time       `json:"created_at"`
-	HandoffNote             string          `json:"handoff_note"`
-	InputLeaseExpiresAt     *time.Time      `json:"input_lease_expires_at"`
-	InputFetchExpiresAt     *time.Time      `json:"input_fetch_expires_at"`
-	InputFetchID            *uuid.UUID      `json:"input_fetch_id"`
-	InputOutcomes           json.RawMessage `json:"input_outcomes"`
-	AddonHash               string          `json:"addon_hash"`
-	AddonMcp                json.RawMessage `json:"addon_mcp"`
-	Kind                    string          `json:"kind"`
-	RequesterID             *uuid.UUID      `json:"requester_id"`
-	RequestedModel          string          `json:"requested_model"`
-	AgentID                 *uuid.UUID      `json:"agent_id"`
-	Assignment              string          `json:"assignment"`
-	CancelReason            *string         `json:"cancel_reason"`
-	MachineName             *string         `json:"machine_name"`
-	MachineOwnerID          *uuid.UUID      `json:"machine_owner_id"`
-	CoresearchChatID        *uuid.UUID      `json:"coresearch_chat_id"`
-	CoresearchBuildID       *uuid.UUID      `json:"coresearch_build_id"`
-	RetryAfter              *time.Time      `json:"retry_after"`
-	InfraFailures           int32           `json:"infra_failures"`
-	AttachmentSnapshot      []uuid.UUID     `json:"attachment_snapshot"`
-	LabChatID               *uuid.UUID      `json:"lab_chat_id"`
-	LabPurpose              string          `json:"lab_purpose"`
-	PinnedRuntimeID         *uuid.UUID      `json:"pinned_runtime_id"`
-	FirstStartedAt          *time.Time      `json:"first_started_at"`
-	LegacyUnverifiedStarted bool            `json:"legacy_unverified_started"`
-	AgentName               *string         `json:"agent_name"`
-	LatestText              string          `json:"latest_text"`
-	LastActivityAt          *time.Time      `json:"last_activity_at"`
-	AttemptEnds             json.RawMessage `json:"attempt_ends"`
-	Waiting                 string          `json:"waiting"`
-	Answer                  string          `json:"answer"`
-	HandIn                  interface{}     `json:"hand_in"`
-	HandInID                string          `json:"hand_in_id"`
-	HandInMessageSeq        int32           `json:"hand_in_message_seq"`
+	ID                        uuid.UUID       `json:"id"`
+	WorkspaceID               uuid.UUID       `json:"workspace_id"`
+	CardID                    *uuid.UUID      `json:"card_id"`
+	ResponsibleUserID         uuid.UUID       `json:"responsible_user_id"`
+	BoardColumn               string          `json:"board_column"`
+	Round                     int32           `json:"round"`
+	Role                      string          `json:"role"`
+	Harness                   string          `json:"harness"`
+	Prompt                    string          `json:"prompt"`
+	Skill                     string          `json:"skill"`
+	Status                    string          `json:"status"`
+	QueueReason               *string         `json:"queue_reason"`
+	RuntimeID                 *uuid.UUID      `json:"runtime_id"`
+	PrepareLeaseExpiresAt     *time.Time      `json:"prepare_lease_expires_at"`
+	DispatchedAt              *time.Time      `json:"dispatched_at"`
+	StartedAt                 *time.Time      `json:"started_at"`
+	CompletedAt               *time.Time      `json:"completed_at"`
+	Attempt                   int32           `json:"attempt"`
+	MaxAttempts               int32           `json:"max_attempts"`
+	SessionID                 string          `json:"session_id"`
+	ContinuityScope           string          `json:"continuity_scope"`
+	ProfileMode               string          `json:"profile_mode"`
+	PolicyDigest              string          `json:"policy_digest"`
+	Model                     string          `json:"model"`
+	Error                     string          `json:"error"`
+	FailureReason             *string         `json:"failure_reason"`
+	CostUsd                   float64         `json:"cost_usd"`
+	LateUsageAt               *time.Time      `json:"late_usage_at"`
+	CreatedAt                 time.Time       `json:"created_at"`
+	HandoffNote               string          `json:"handoff_note"`
+	InputLeaseExpiresAt       *time.Time      `json:"input_lease_expires_at"`
+	InputFetchExpiresAt       *time.Time      `json:"input_fetch_expires_at"`
+	InputFetchID              *uuid.UUID      `json:"input_fetch_id"`
+	InputOutcomes             json.RawMessage `json:"input_outcomes"`
+	AddonHash                 string          `json:"addon_hash"`
+	AddonMcp                  json.RawMessage `json:"addon_mcp"`
+	Kind                      string          `json:"kind"`
+	RequesterID               *uuid.UUID      `json:"requester_id"`
+	RequestedModel            string          `json:"requested_model"`
+	AgentID                   *uuid.UUID      `json:"agent_id"`
+	Assignment                string          `json:"assignment"`
+	CancelReason              *string         `json:"cancel_reason"`
+	MachineName               *string         `json:"machine_name"`
+	MachineOwnerID            *uuid.UUID      `json:"machine_owner_id"`
+	CoresearchChatID          *uuid.UUID      `json:"coresearch_chat_id"`
+	CoresearchBuildID         *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter                *time.Time      `json:"retry_after"`
+	InfraFailures             int32           `json:"infra_failures"`
+	AttachmentSnapshot        []uuid.UUID     `json:"attachment_snapshot"`
+	LabChatID                 *uuid.UUID      `json:"lab_chat_id"`
+	LabPurpose                string          `json:"lab_purpose"`
+	PinnedRuntimeID           *uuid.UUID      `json:"pinned_runtime_id"`
+	FirstStartedAt            *time.Time      `json:"first_started_at"`
+	LegacyUnverifiedStarted   bool            `json:"legacy_unverified_started"`
+	RequiresOutputAttestation bool            `json:"requires_output_attestation"`
+	AgentName                 *string         `json:"agent_name"`
+	LatestText                string          `json:"latest_text"`
+	LastActivityAt            *time.Time      `json:"last_activity_at"`
+	AttemptEnds               json.RawMessage `json:"attempt_ends"`
+	Waiting                   string          `json:"waiting"`
+	Answer                    string          `json:"answer"`
+	HandIn                    interface{}     `json:"hand_in"`
+	HandInID                  string          `json:"hand_in_id"`
+	HandInMessageSeq          int32           `json:"hand_in_message_seq"`
 }
 
 // A card's runs with what the study page shows about each: the name of the
@@ -218,6 +225,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.PinnedRuntimeID,
 			&i.FirstStartedAt,
 			&i.LegacyUnverifiedStarted,
+			&i.RequiresOutputAttestation,
 			&i.AgentName,
 			&i.LatestText,
 			&i.LastActivityAt,
@@ -711,7 +719,11 @@ const listCards = `-- name: ListCards :many
 SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.workflow, c.workflow_release, c.grounding_criteria, c.legacy_column, c.study_cli, c.auditor_cli, c.start_date, c.priority,
   COALESCE((SELECT w FROM agent_run t, agent_run_waiting(t.workspace_id, t.id) w
     WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued' AND w IS NOT NULL
+      AND NOT (t.kind = 'rerun' AND t.requires_output_attestation)
     ORDER BY t.created_at, t.id LIMIT 1),
+    (SELECT CASE WHEN t.queue_reason = 'runtime_offline' THEN 'Waiting for a machine: reconnect the daemon.'
+      ELSE 'Waiting for a daemon with output attestation. Upgrade if the daemon does not support frozen comparisons.' END FROM agent_run t
+    WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued' AND t.requires_output_attestation LIMIT 1),
     -- A column whose hand-in waits on scoring is not plain work in progress.
     (SELECT 'Waiting for scoring: it is unavailable. Lykeion keeps retrying.' FROM inbox_item i
     WHERE i.workspace_id = c.workspace_id AND i.card_id = c.id AND i.kind = 'scoring_unavailable' AND i.resolved_at IS NULL

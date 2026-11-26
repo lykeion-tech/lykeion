@@ -497,3 +497,65 @@ func TestBuildKeepsOnlyLinksToGroundingSources(t *testing.T) {
 		t.Fatalf("links %+v, want only the paper's", r.Links)
 	}
 }
+
+func TestBuildShowsBoundMeasurementsOnExactOutputAndFinding(t *testing.T) {
+	for _, keyless := range []bool{false, true} {
+		mode := "keyed"
+		if keyless {
+			mode = "keyless"
+		}
+		t.Run(mode, func(t *testing.T) {
+			s := newStudy("experimentation", "validation")
+			run := s.run("experimentation", "Experimenter")
+			file := "outputs/result.json"
+			s.rec("experimentation", "output", "o1", 1, &run, map[string]string{"name": file})
+			s.rec("experimentation", "output", "o2", 1, &run, map[string]string{"name": file})
+			s.rec("experimentation", "value", "v1", 1, &run, map[string]any{
+				"name": "treated", "file": file, "field": "/difference/value", "measure": "difference", "value": "0.0150",
+			})
+			s.rec("experimentation", "value", "v2", 1, &run, map[string]any{
+				"name": "unchecked", "file": file, "field": "/other/value", "measure": "difference", "value": "9",
+			})
+			res := review.Result{Decision: review.DecidePass, Items: []review.Item{{
+				Key: "v1", Kind: "value", Status: review.Pass, Output: "o1",
+				Measure: &review.Measure{ID: "difference", Name: "Mean difference", Unit: "seconds"},
+				Checks: []review.Check{
+					{ID: "bound", By: "server", Status: review.Pass},
+					{ID: "measure", By: "server", Status: review.Pass},
+				},
+			}}}
+			if keyless {
+				res.Decision = ""
+				s.rec("experimentation", "server_checks", "s1", 1, nil, map[string]any{
+					"complete": true, "approval_decision": "other", "checks": map[string]any{},
+				}).Role = "server"
+				s.rec("experimentation", "server_checks", "s2", 1, nil, map[string]any{
+					"complete": true, "approval_decision": "approved", "checks": res,
+				}).Role = "server"
+				s.rec("experimentation", "outcome", "a1", 1, nil, map[string]string{
+					"verdict": "approved_by_owner", "decision_id": "approved",
+				}).Role = "server"
+			} else {
+				s.rec("experimentation", "review", "a1", 1, nil, res).Role = "server"
+			}
+			s.rec("validation", "validation_status", "r1", 2, nil, map[string]any{
+				"hypothesis": "A measurable difference", "status": "supported", "cites": []string{"v1", "v2", "v1"}, "final": true,
+			})
+
+			r := Build(s.in)
+			want := Measurement{Record: "v1", Name: "treated", Value: "0.0150", Field: "/difference/value",
+				Measure: review.Measure{ID: "difference", Name: "Mean difference", Unit: "seconds"}, Output: "o1"}
+			for _, key := range []string{"rec:o1", "rec:r1"} {
+				if got := nodeOf(t, r, key).Measurements; !slices.Equal(got, []Measurement{want}) {
+					t.Errorf("%s measurements = %+v, want %+v", key, got, want)
+				}
+			}
+			if got := nodeOf(t, r, "rec:o2").Measurements; len(got) != 0 {
+				t.Errorf("same path from another saved output is not proof: %+v", got)
+			}
+			if !hasEdge(r, "rec:o1", "rec:r1", "supports") || hasEdge(r, "rec:o2", "rec:r1", "supports") {
+				t.Errorf("report should link only the verified output: %+v", r.Edges)
+			}
+		})
+	}
+}

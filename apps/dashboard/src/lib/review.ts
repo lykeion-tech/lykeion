@@ -6,9 +6,11 @@ import type {
   ReviewAttempt,
   ReviewCheck,
   ReviewColumn,
+  ReviewItem,
   StudyRecord,
 } from '../api/types';
 import { columnName } from './studies';
+import { measurementText } from './measurement';
 
 const checkLabels: Record<string, string> = {
   exists: 'Paper exists',
@@ -23,6 +25,10 @@ const checkLabels: Record<string, string> = {
   lookup: 'Not already tested',
   declared: 'Declared',
   traced: 'Traced to a run',
+  bound: 'Bound to a saved field',
+  measure: 'Matches a hypothesis measure',
+  scale: 'Matches the declared scale',
+  unbound: 'No field binding',
   described: 'Described correctly',
   quote_in_source: 'Quote is in the source',
   verdict: 'Verdict holds',
@@ -34,6 +40,10 @@ export function checkLabel(id: string): string {
   if (/^criterion:\d+$/.test(id)) return `Criterion ${id.slice('criterion:'.length)}`;
   if (id.startsWith('file:')) return `File ${id.slice('file:'.length)} saved`;
   return Object.hasOwn(checkLabels, id) ? checkLabels[id]! : id.replaceAll('_', ' ');
+}
+
+export function reviewItemLabel(item: ReviewItem): string {
+  return measurementText(item.measure, item.value) ?? item.label;
 }
 
 export function statusWord(s: CheckStatus): string {

@@ -88,6 +88,8 @@ type Door struct {
 	HandIn bool
 	// Planning runs collect evidence and specify tests before executing them.
 	Planning bool
+	// OutputAttestation confirms that the server accepts script output hashes.
+	OutputAttestation bool
 	// MemberWait is how long one member_result call waits for the member,
 	// and MemberPoll how often it asks the server; 0 means 10 minutes and
 	// 5 seconds.
@@ -202,7 +204,11 @@ func (d *Door) Start() error {
 		} else if !d.Lab {
 			if !d.Planning {
 				mcp.AddTool(srv, &mcp.Tool{Name: "run_code", Description: runCode}, d.runCode)
-				mcp.AddTool(srv, &mcp.Tool{Name: "run_script", Description: runScript}, d.runScript)
+				if d.OutputAttestation {
+					mcp.AddTool(srv, &mcp.Tool{Name: "run_script", Description: runScript + runScriptAttestation}, d.runScript)
+				} else {
+					mcp.AddTool(srv, &mcp.Tool{Name: "run_script", Description: runScript}, d.runScriptLegacy)
+				}
 				mcp.AddTool(srv, &mcp.Tool{Name: "set_up_environment", Description: setupDescription}, d.setUp)
 			}
 			if d.HandIn {

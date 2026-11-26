@@ -317,3 +317,77 @@ func TestLongRetryIdentitiesUseAliasesForEveryItemKind(t *testing.T) {
 		}
 	}
 }
+
+func TestEarlierHypothesisUsesCitationsFromItsOwnHandIn(t *testing.T) {
+	originalID, editID := uuid.New(), uuid.New()
+	runID := uuid.New()
+	original := db.Record{ID: originalID, Kind: review.KindHypothesis, Role: "agent", Round: 1, AgentRunID: &runID,
+		Body: json.RawMessage(`{"text":"Accuracy improves","prediction":{"shape":"direction","direction":"increase"},"cites":["call:c1"]}`)}
+	makeHandIn := func(round int32, record uuid.UUID, cite string) db.Record {
+		body, err := json.Marshal(map[string]any{
+			"converted_records": []uuid.UUID{record},
+			"hand_in": map[string]any{"hypotheses": []map[string]any{
+				{"text": "Accuracy improves", "cites": []string{cite}},
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return db.Record{Kind: "hand_in", Role: "agent", Round: round, AgentRunID: &runID, Body: body}
+	}
+	history := []db.Record{
+		makeHandIn(1, originalID, "doi:10.1/original"),
+		makeHandIn(1, editID, "doi:10.1/other-record"),
+		makeHandIn(2, editID, "doi:10.1/redo"),
+	}
+	lines := itemLines([]db.Record{original}, history, nil)
+	if len(lines) != 1 || !strings.HasSuffix(lines[0], "Cites doi:10.1/original.") {
+		t.Fatalf("carried hypothesis lines = %v", lines)
+	}
+}
+
+func TestHypothesisRedoRejectsMeasureConflictsWithCarriedDeclarations(t *testing.T) {
+	l := newLab(t)
+	c, _ := earlierStudy(t, l)
+	measure := func(id, unit string) *review.Measure { return &review.Measure{ID: id, Name: "Accuracy", Unit: unit} }
+	carried := l.put(t, c.ID, "hypotheses", 1, review.KindHypothesis, "agent", review.HypothesisBody{
+		Text: "The treatment raises accuracy.", Measure: measure("accuracy", "percent"),
+	})
+	failed := l.put(t, c.ID, "hypotheses", 1, review.KindHypothesis, "agent", review.HypothesisBody{
+		Text: "The treatment raises recall.", Measure: measure("recall", "percent"),
+	})
+	l.put(t, c.ID, "hypotheses", 1, "review", "server", review.Result{Column: "hypotheses", Items: []review.Item{
+		{Key: carried, Kind: review.KindHypothesis, Identity: "the treatment raises accuracy.", Status: review.Unclear},
+		{Key: failed, Kind: review.KindHypothesis, Identity: "the treatment raises recall.", Status: review.Fail},
+	}})
+	// The review points to the first declaration, even if a later declaration has the same text.
+	l.put(t, c.ID, "hypotheses", 2, review.KindHypothesis, "agent", review.HypothesisBody{
+		Text: "The treatment raises accuracy.", Measure: measure("accuracy", "fraction"),
+	})
+	c = l.move(t, c.ID, "hypotheses", 2)
+	var prev handin.Review
+	var grounding []db.Record
+	l.in(t, func(tx *store.Tx) (err error) {
+		if prev, err = l.e.SentBack(context.Background(), tx, c); err != nil {
+			return err
+		}
+		grounding, err = tx.Q.ListRecords(context.Background(), db.ListRecordsParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "grounding"})
+		return err
+	})
+	control, increase := "baseline", "increase"
+	h := handin.HandIn{Status: "done", Answer: "Corrected the recall hypothesis.",
+		Hypotheses: []handin.Hypothesis{{Text: "The treatment raises recall.", PredictionShape: "direction", Direction: &increase,
+			Control: &control, Cites: []string{"doi:10.1/a"}, Measure: measure("accuracy", "fraction")}},
+		Replies: []handin.Reply{{Item: "The treatment raises recall.", Action: "corrected", Reason: "Use a different measure."}},
+	}
+	ev := handin.NewEvidence(grounding)
+	if _, probs := handin.Convert(handin.Hypotheses, true, h, ev, prev); !strings.Contains(strings.Join(probs, "\n"), `measure id "accuracy"`) {
+		t.Fatalf("problems = %v, want a conflict with carried accuracy", probs)
+	}
+	for _, m := range []*review.Measure{measure("accuracy", "percent"), measure("recall", "fraction")} {
+		h.Hypotheses[0].Measure = m
+		if _, probs := handin.Convert(handin.Hypotheses, true, h, ev, prev); len(probs) != 0 {
+			t.Errorf("measure %+v had problems: %v", m, probs)
+		}
+	}
+}

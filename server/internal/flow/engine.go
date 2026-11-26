@@ -378,10 +378,18 @@ func (e *Engine) enqueueWithInput(ctx context.Context, tx *store.Tx, c db.Card, 
 	if builtIn {
 		template = ""
 	}
+	requiresOutputAttestation := false
+	if c.BoardColumn == board.Experimentation {
+		requiresOutputAttestation, err = frozenComparisonRequiresAttestation(ctx, tx, c.ID)
+		if err != nil {
+			return db.AgentRun{}, err
+		}
+	}
 	return e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
 		Role: role, Harness: harness, Model: model, Prompt: runPrompt, Agent: &agentID, Assignment: runAssignment,
-		ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round),
-		Skill:           strings.TrimSpace(instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m, template))})
+		RequiresOutputAttestation: requiresOutputAttestation,
+		ContinuityScope:           ContinuityScope(c.ID, role, c.BoardColumn, c.Round),
+		Skill:                     strings.TrimSpace(instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m, template))})
 }
 
 func studyCLI(role, worker, auditor string, def pack.AgentDef) (string, string) {

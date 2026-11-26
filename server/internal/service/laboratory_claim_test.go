@@ -336,7 +336,7 @@ func TestLabRerunGoesToTheLeadersMachine(t *testing.T) {
 			return err
 		}
 		var err error
-		rerun, err = l.T.EnqueueRerun(t.Context(), tx, l.member, l.study, 1)
+		rerun, err = l.T.EnqueueRerun(t.Context(), tx, l.member, l.study, 1, false)
 		return err
 	}); err != nil {
 		t.Fatal(err)

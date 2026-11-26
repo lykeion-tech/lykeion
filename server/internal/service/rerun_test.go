@@ -41,7 +41,7 @@ func (f *fixture) enqueueRerun(t *testing.T, owner uuid.UUID) uuid.UUID {
 	t.Helper()
 	var run db.AgentRun
 	if err := f.T.Store.InWorkspace(context.Background(), f.WS, owner, func(tx *store.Tx) (err error) {
-		run, err = f.T.EnqueueRerun(context.Background(), tx, owner, f.Card, 1)
+		run, err = f.T.EnqueueRerun(context.Background(), tx, owner, f.Card, 1, false)
 		return err
 	}); err != nil {
 		t.Fatal(err)
