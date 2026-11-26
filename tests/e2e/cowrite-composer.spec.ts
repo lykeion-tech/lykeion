@@ -50,14 +50,16 @@ test('Manage skills preserves the draft on Settings back and explicit New clears
     }),
   );
   await page.goto('/#/coresearch/new');
+  const picker = page.getByRole('button', { name: /^CLI and model:/ });
+  await expect(picker).toHaveText('Default (recommended)');
   await page.getByRole('button', { name: 'Cowrite', exact: true }).click();
-  await page
-    .getByRole('button', {
-      name: 'CLI and model: Claude Code · Default (recommended)',
-      exact: true,
-    })
-    .click();
+  await expect(picker).toHaveText('Default (recommended)');
+  await picker.click();
   await page.getByRole('button', { name: 'Large — More capacity', exact: true }).click();
+  await expect(picker).toHaveText('Large');
+  await page.getByRole('button', { name: 'Experiment', exact: true }).click();
+  await expect(picker).toHaveText('Large');
+  await page.getByRole('button', { name: 'Cowrite', exact: true }).click();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Template', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'NeurIPS', exact: true }).click();
@@ -85,7 +87,7 @@ test('Manage skills preserves the draft on Settings back and explicit New clears
   );
   await expect(
     page.getByRole('button', { name: 'CLI and model: Claude Code · Large', exact: true }),
-  ).toBeVisible();
+  ).toHaveText('Large');
   await expect(page.getByRole('button', { name: 'Remove figure.svg', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Template', exact: true }).click();

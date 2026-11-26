@@ -824,7 +824,6 @@ async function build() {
                     :models="sessionModels"
                     :cli="model && chat.cli !== 'codex' ? undefined : chat.cli"
                     :clis="model && chat.cli !== 'codex' ? undefined : [chat.cli]"
-                    model-chosen
                     :attachments="attachments"
                     :initial-capabilities="composerCapabilities"
                     @capabilities="composerCapabilities = $event"

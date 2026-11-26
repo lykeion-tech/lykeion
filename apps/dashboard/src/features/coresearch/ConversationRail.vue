@@ -4,11 +4,8 @@ import { useAristotle, startConversationDraft } from './aristotle';
 import { useRouter } from 'vue-router';
 import RailActions from '../../ui/RailActions.vue';
 import Icon from '../../ui/Icon.vue';
-import ChatAgentAvatar from './ChatAgentAvatar.vue';
 import ConversationActions from './ConversationActions.vue';
-import { useAgents } from '../../api/queries';
 const state = useAristotle();
-const agents = useAgents();
 const router = useRouter();
 const emit = defineEmits<{ search: [] }>();
 const shown = computed(() =>
@@ -70,13 +67,7 @@ async function startDraft(event: MouseEvent) {
             "
             class="conversation-link"
             active-class="selected"
-            ><ChatAgentAvatar
-              :agent="
-                c.shared ? undefined : agents.data.value?.find((agent) => agent.id === c.agent_id)
-              "
-              :size="24"
-              :fallback-aristotle="!c.shared && c.agent_id === state.agent.data.value?.id"
-            />
+          >
             <span
               >{{ c.title }}<small v-if="c.shared">Shared</small
               ><small>{{
@@ -136,9 +127,7 @@ async function startDraft(event: MouseEvent) {
   text-align: left;
 }
 .conversation-link {
-  display: flex;
-  gap: 9px;
-  align-items: flex-start;
+  display: block;
   padding: 10px;
   border-radius: 6px;
   font-size: 13px;
@@ -171,7 +160,7 @@ async function startDraft(event: MouseEvent) {
   }
 }
 .conversation-link > span {
-  min-width: 0;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

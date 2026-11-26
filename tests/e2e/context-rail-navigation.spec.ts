@@ -92,6 +92,7 @@ test("the rails' New row has the home sidebar's icon and C shortcut, and C start
 test('the sidebar puts the wordmark and the Coresearch/Decisions toggle on top and the Lab menu at the bottom', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1233, height: 864 });
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
   const brand = nav.locator('.sidebar-brand');
@@ -134,6 +135,8 @@ test('the sidebar puts the wordmark and the Coresearch/Decisions toggle on top a
   expect(items[0]).toContain('@');
   expect(items.at(-1)).toBe('Log out');
   const box = (await menu.boundingBox())!;
+  const helpBox = (await nav.getByRole('button', { name: 'Help', exact: true }).boundingBox())!;
+  expect(box.x + box.width).toBeCloseTo(helpBox.x + helpBox.width);
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.y + box.height).toBeLessThanOrEqual(labBox.y);
   await menu.getByRole('menuitem', { name: 'Lykeion' }).click();
