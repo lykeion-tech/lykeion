@@ -823,13 +823,14 @@ test('many workspaces remain normally clickable in the workspace popup on a smal
       .click({ timeout: 3000 });
     await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription(last.name);
     await page.locator('.workspace-switch').click();
-    const box = await menu.boundingBox();
+    const box = (await menu.boundingBox())!;
     const trigger = (await page.locator('.workspace-switch').boundingBox())!;
+    const help = (await page.getByRole('button', { name: 'Help', exact: true }).boundingBox())!;
     // The menu opens upward from the Lab toggle at the bottom of the sidebar.
-    expect(box!.y).toBeGreaterThanOrEqual(0);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(trigger.y);
-    expect(box?.width).toBe(180);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(600);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(trigger.y);
+    expect(box.x + box.width).toBeCloseTo(help.x + help.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(600);
     expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     await menu.getByRole('menuitem', { name: /Popup lab 0$/ }).click();
     await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription('Popup lab 0');
