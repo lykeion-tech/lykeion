@@ -11,6 +11,32 @@ type Highlight = {
 
 // Each release includes its own reviewed copy and feature illustration.
 const releases: Record<string, readonly Highlight[]> = {
+  '0.1.14': [
+    {
+      title: 'Trace a measurement to its exact field',
+      description:
+        'Study Review shows the saved value, its JSON field, and the hypothesis measure and unit. Values without a field binding still use the existing evidence checks and get a warning.',
+      icon: 'check',
+      color: 'blue',
+      details: ['Saved output', 'Exact field', 'Verified measurement'],
+    },
+    {
+      title: 'Check outcomes against a frozen comparison',
+      description:
+        'Validation uses replayed values to check outcomes such as above or below a baseline. If a study waits for an upgrade, update the daemon and it will resume from the queue.',
+      icon: 'code',
+      color: 'green',
+      details: ['Hypothesis comparison', 'Replayed values', 'Outcome check'],
+    },
+    {
+      title: 'Preserve each replay’s measurements',
+      description:
+        'When two scripts write to the same JSON path, Lykeion keeps each verified version with its execution so Validation can check both.',
+      icon: 'play',
+      color: 'violet',
+      details: ['First execution', 'Second execution', 'Separate evidence'],
+    },
+  ],
   '0.1.13': [
     {
       title: 'Turn a Coresearch chat into a study',
