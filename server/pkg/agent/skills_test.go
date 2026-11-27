@@ -177,3 +177,23 @@ func TestRoleRunsMayCallTheDoorAndNotSources(t *testing.T) {
 		t.Fatal(claudeTools)
 	}
 }
+
+func RenameSkill(folder, from, to string) error {
+	root, err := os.OpenRoot(folder)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return RenameSkillRoot(root, from, to)
+}
+func Untar(r io.Reader, dst string) error {
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(dst)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return UntarRoot(r, root)
+}

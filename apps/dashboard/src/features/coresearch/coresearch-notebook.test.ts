@@ -6,9 +6,6 @@ import ComputePane from './ComputePane.vue';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
-import { chatRuntime } from './notebook-model';
-import type { Runtime } from '../../api/types';
-import type { ChatRow } from './types';
 vi.hoisted(() => {
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
@@ -153,18 +150,6 @@ describe('Coresearch notebook and compute', () => {
     for (const path of ['analysis.py', 'analysis.R', 'analysis.jl'])
       expect(textOf(root)).toContain(path);
     expect(textOf(root)).not.toContain('R4');
-  });
-  it('machine identity requires every recorded binding field', () => {
-    const exact = {
-      workspace_id: 'lab',
-      owner_id: 'other',
-      daemon_id: 'd',
-      harness: 'claude',
-      status: 'offline',
-    } as Runtime;
-    expect(chatRuntime(chat as ChatRow, [exact])).toBe(exact);
-    for (const field of ['workspace_id', 'owner_id', 'daemon_id', 'harness'])
-      expect(chatRuntime(chat as ChatRow, [{ ...exact, [field]: 'wrong' }])).toBeUndefined();
   });
   it('renders png and svg outputs safely and revokes blob URLs', async () => {
     const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:svg-output');

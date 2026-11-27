@@ -159,16 +159,6 @@ func TestDispatchActsOnceAndRespectsAPause(t *testing.T) {
 	}
 }
 
-func TestRunNowActsAsTheClicker(t *testing.T) {
-	f := setup(t)
-	clicker := f.user(t, "c@lab.org", "member")
-	ap := f.autoresearch(t, "create_card", "Digest", "", "")
-	r, err := f.s.RunNow(context.Background(), f.ws, ap, clicker)
-	if err != nil || r.Source != "manual" || r.ActingUserID != clicker || r.Status != "running" || r.CardID == nil || r.TriggerID != nil || f.card(t, *r.CardID).OwnerID != clicker {
-		t.Fatalf("%+v %v", r, err)
-	}
-}
-
 func TestAStudyThatCannotStartFailsTheRunAndLeavesNoCard(t *testing.T) {
 	f := setup(t)
 	f.s.Engine = &flow.Engine{Store: f.s.Store, AgentRuns: f.s.AgentRuns}

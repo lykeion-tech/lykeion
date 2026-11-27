@@ -186,30 +186,6 @@ func (q *Queries) CardKindRecords(ctx context.Context, arg CardKindRecordsParams
 	return items, nil
 }
 
-const countKindRecords = `-- name: CountKindRecords :one
-SELECT count(*) FROM record WHERE workspace_id = $1 AND card_id = $2
-  AND board_column = $3 AND kind = $4
-`
-
-type CountKindRecordsParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	BoardColumn string    `json:"board_column"`
-	Kind        string    `json:"kind"`
-}
-
-func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countKindRecords,
-		arg.WorkspaceID,
-		arg.CardID,
-		arg.BoardColumn,
-		arg.Kind,
-	)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const dismissMachineFailures = `-- name: DismissMachineFailures :many
 UPDATE inbox_item SET status = 'dismissed', resolved_at = now(), touched_at = now()
 WHERE workspace_id = $1 AND card_id = $2::uuid
@@ -777,52 +753,6 @@ func (q *Queries) ResolveOpenOwnerItem(ctx context.Context, arg ResolveOpenOwner
 	return i, err
 }
 
-const roundAgentRunRecords = `-- name: RoundAgentRunRecords :many
-SELECT agent_run_id::uuid AS agent_run_id, kind, body FROM record
-WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3
-  AND round = $4 AND agent_run_id IS NOT NULL AND superseded_at IS NULL
-`
-
-type RoundAgentRunRecordsParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	BoardColumn string    `json:"board_column"`
-	Round       int32     `json:"round"`
-}
-
-type RoundAgentRunRecordsRow struct {
-	AgentRunID uuid.UUID       `json:"agent_run_id"`
-	Kind       string          `json:"kind"`
-	Body       json.RawMessage `json:"body"`
-}
-
-// The live records each agent run of a round wrote itself, so the engine can tell
-// whether a role left a result.
-func (q *Queries) RoundAgentRunRecords(ctx context.Context, arg RoundAgentRunRecordsParams) ([]RoundAgentRunRecordsRow, error) {
-	rows, err := q.db.Query(ctx, roundAgentRunRecords,
-		arg.WorkspaceID,
-		arg.CardID,
-		arg.BoardColumn,
-		arg.Round,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RoundAgentRunRecordsRow
-	for rows.Next() {
-		var i RoundAgentRunRecordsRow
-		if err := rows.Scan(&i.AgentRunID, &i.Kind, &i.Body); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const roundAgentRuns = `-- name: RoundAgentRuns :many
 SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id, first_started_at, legacy_unverified_started, requires_output_attestation FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4 ORDER BY created_at
@@ -956,55 +886,6 @@ func (q *Queries) SaveCardBoard(ctx context.Context, arg SaveCardBoardParams) er
 		arg.ID,
 		arg.WorkspaceID,
 	)
-	return err
-}
-
-const setAgentRunContinuity = `-- name: SetAgentRunContinuity :exec
-UPDATE agent_run SET continuity_scope = $1 WHERE id = $2 AND workspace_id = $3
-`
-
-type SetAgentRunContinuityParams struct {
-	ContinuityScope string    `json:"continuity_scope"`
-	ID              uuid.UUID `json:"id"`
-	WorkspaceID     uuid.UUID `json:"workspace_id"`
-}
-
-// Which CLI session a role run continues on its owner's daemon.
-func (q *Queries) SetAgentRunContinuity(ctx context.Context, arg SetAgentRunContinuityParams) error {
-	_, err := q.db.Exec(ctx, setAgentRunContinuity, arg.ContinuityScope, arg.ID, arg.WorkspaceID)
-	return err
-}
-
-const setAgentRunHandoffNote = `-- name: SetAgentRunHandoffNote :exec
-UPDATE agent_run SET handoff_note = $1 WHERE id = $2 AND workspace_id = $3
-`
-
-type SetAgentRunHandoffNoteParams struct {
-	HandoffNote string    `json:"handoff_note"`
-	ID          uuid.UUID `json:"id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-}
-
-func (q *Queries) SetAgentRunHandoffNote(ctx context.Context, arg SetAgentRunHandoffNoteParams) error {
-	_, err := q.db.Exec(ctx, setAgentRunHandoffNote, arg.HandoffNote, arg.ID, arg.WorkspaceID)
-	return err
-}
-
-const setCardQueueReason = `-- name: SetCardQueueReason :exec
-UPDATE agent_run SET queue_reason = $1
-WHERE workspace_id = $2 AND card_id = $3::uuid AND status = 'queued'
-`
-
-type SetCardQueueReasonParams struct {
-	QueueReason *string   `json:"queue_reason"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-}
-
-// Sets or clears why a card's queued agent runs wait. Clearing also drops
-// runtime_offline, which the next tick restores when it still holds.
-func (q *Queries) SetCardQueueReason(ctx context.Context, arg SetCardQueueReasonParams) error {
-	_, err := q.db.Exec(ctx, setCardQueueReason, arg.QueueReason, arg.WorkspaceID, arg.CardID)
 	return err
 }
 

@@ -4,15 +4,11 @@ import { api } from '../../../api/client';
 import { workspaceId } from '../../../api/session';
 import { keys, projectPath } from '../api';
 import type {
-  Doc,
-  DocStep,
-  Change,
   Comment,
   Build,
   Version,
   Compute,
   Template,
-  Presence,
 } from './types';
 export const docPath = (project: string, file: string) =>
   `${projectPath(project)}/docs/${encodeURIComponent(file)}`;
@@ -38,35 +34,6 @@ function useResource<T>(
         }
       : {}),
   });
-}
-export function useDoc(project: Source<string>, file: Source<string>) {
-  return useResource<Doc>(
-    project,
-    () => keys.cowriteDoc(workspaceId.value, toValue(project), toValue(file)),
-    () => docPath(toValue(project), toValue(file)),
-    () => !!toValue(file),
-  );
-}
-export function useDocSteps(
-  project: Source<string>,
-  file: Source<string>,
-  after: Source<number>,
-  open: Source<boolean> = true,
-) {
-  return useResource<DocStep[]>(
-    project,
-    () => keys.cowriteDocSteps(workspaceId.value, toValue(project), toValue(file), toValue(after)),
-    () => `${docPath(toValue(project), toValue(file))}/steps?after=${toValue(after)}`,
-    () => !!toValue(file) && toValue(open),
-  );
-}
-export function useChanges(project: Source<string>, file: Source<string>) {
-  return useResource<Change[]>(
-    project,
-    () => keys.cowriteChanges(workspaceId.value, toValue(project), toValue(file)),
-    () => `${docPath(toValue(project), toValue(file))}/changes`,
-    () => !!toValue(file),
-  );
 }
 export function useComments(project: Source<string>, file: Source<string>) {
   return useResource<Comment[]>(
@@ -108,18 +75,5 @@ export function useTemplates(project: Source<string> = 'new') {
     project,
     () => keys.cowriteTemplates(workspaceId.value, toValue(project)),
     () => '/api/coresearch/templates',
-  );
-}
-export function usePresence(
-  project: Source<string>,
-  file: Source<string>,
-  open: Source<boolean> = true,
-) {
-  return useResource<Presence[]>(
-    project,
-    () => keys.cowritePresence(workspaceId.value, toValue(project), toValue(file)),
-    () => `${docPath(toValue(project), toValue(file))}/presence`,
-    () => !!toValue(file) && toValue(open),
-    1000,
   );
 }

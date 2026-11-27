@@ -80,24 +80,6 @@ func (q *Queries) CardHasOnlineRuntime(ctx context.Context, arg CardHasOnlineRun
 	return ok, err
 }
 
-const countOpenCardInbox = `-- name: CountOpenCardInbox :one
-SELECT count(*) FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
-  AND kind = $3 AND resolved_at IS NULL
-`
-
-type CountOpenCardInboxParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	Kind        string    `json:"kind"`
-}
-
-func (q *Queries) CountOpenCardInbox(ctx context.Context, arg CountOpenCardInboxParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countOpenCardInbox, arg.WorkspaceID, arg.CardID, arg.Kind)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countOpenNoTool = `-- name: CountOpenNoTool :one
 SELECT count(*) FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
   AND kind = 'no_tool' AND resolved_at IS NULL

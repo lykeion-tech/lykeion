@@ -142,22 +142,6 @@ func (p Policy) check() error {
 	return nil
 }
 
-// SavePolicy applies to future claims only.
-func SavePolicy(stateDir string, ws uuid.UUID, p Policy) error {
-	p.Version = policyVersion
-	if err := p.check(); err != nil {
-		return err
-	}
-	dir := profileDir(stateDir, ws)
-	if err := checkProfileDir(dir); err != nil {
-		return err
-	}
-	if err := privateDir(filepath.Dir(dir)); err != nil {
-		return err
-	}
-	return atomicJSON(dir, "policy.json", p)
-}
-
 // ResetProfile forgets Lykeion's policy and session registry for a workspace.
 // The account's own CLI history and sign-in are untouched.
 func ResetProfile(stateDir string, ws uuid.UUID) error {
@@ -178,46 +162,6 @@ type sessionScope struct {
 func (s sessionScope) key() string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{s.Workspace.String(), s.User.String(), s.Harness, s.Scope}, "\x00")))
 	return hex.EncodeToString(sum[:])
-}
-
-// ForgetScope deletes one scope's private folder and session record, e.g. when
-// its chat is deleted. A folder a run holds stays, and the forget fails for the
-// caller to retry. The account's own CLI history is untouched.
-func (d *daemon) ForgetScope(ws, user uuid.UUID, harness, scope string) error {
-	key := sessionScope{Workspace: ws, User: user, Harness: harness, Scope: scope}.key()
-	name := "scope-" + key
-	if !d.holdScratch(name) {
-		return errors.New("the scope's folder is in use")
-	}
-	defer d.releaseScratch(name)
-	reservation, err := agent.ReserveScratch(filepath.Join(d.cfg.Home, name))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if reservation != nil {
-		defer reservation.Release()
-		if err = reservation.Remove(); err != nil {
-			return err
-		}
-	}
-	if err = os.Remove(finishedRecord(d.cfg.StateDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	dir := sessionsDir(d.cfg.StateDir, ws)
-	if err := checkProfileDir(filepath.Dir(dir)); err != nil {
-		return err
-	}
-	if err := checkProfileDir(dir); err != nil {
-		return err
-	}
-	err = os.Remove(filepath.Join(dir, key+".json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return syncDir(dir)
 }
 
 type sessionRecord struct {

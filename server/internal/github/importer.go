@@ -168,19 +168,6 @@ func (j *importJob) transition(ctx context.Context, state string) error {
 	})
 }
 
-func (s *Service) ImportRepos(ctx context.Context, id int64, repos []Repo) {
-	if len(repos) == 0 {
-		return
-	}
-	connections, err := s.importConnections(ctx, id)
-	if err == nil {
-		err = s.runRepoImports(ctx, connections, repos)
-	}
-	if err != nil && ctx.Err() == nil {
-		slog.Warn("GitHub added repository import failed", "error", scrub(err))
-	}
-}
-
 func (s *Service) importConnections(ctx context.Context, id int64) ([]db.GithubConnection, error) {
 	rows, err := db.New(s.Store.Pool).GithubInstallationWorkspaces(ctx, id)
 	if err != nil {

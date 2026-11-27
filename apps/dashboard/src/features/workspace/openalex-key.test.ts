@@ -28,15 +28,6 @@ vi.mock('../../api/queries', () => ({
   useMe: () => ({ data: ref({ id: 'me' }) }),
   useMembers: () => ({ data: ref([]) }),
 }));
-vi.mock('../../state/availability', () => ({
-  useAvailabilityChanges: () => ({
-    error: ref(''),
-    allowed: ref(false),
-    catalogueAllowed: ref(true),
-    pending: ref(''),
-    toggle,
-  }),
-}));
 
 const apps: ReturnType<typeof createTreeApp>[] = [];
 beforeEach(() => {

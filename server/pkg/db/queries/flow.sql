@@ -28,10 +28,6 @@ ORDER BY created_at, id;
 SELECT * FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id
   AND key = ANY(@keys::text[]) AND superseded_at IS NULL ORDER BY created_at, id;
 
--- name: CountOpenCardInbox :one
-SELECT count(*) FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
-  AND kind = @kind AND resolved_at IS NULL;
-
 -- name: CountOpenNoTool :one
 -- An open no_tool item's text is a fixed lead, then the need it names, whole;
 -- the lead's first "what it needed: " comes before anything a need can say.

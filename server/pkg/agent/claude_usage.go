@@ -206,10 +206,3 @@ func syncUsageDir(dir string) error {
 	}
 	return closeErr
 }
-
-// ClaudeResumable reports whether a run folder holds the usage baseline of
-// session, which a resumed Claude run is charged against.
-func ClaudeResumable(dir, session string) bool {
-	b, err := readClaudeSnapshot(filepath.Join(dir, ".cli-home", ".lyk-usage.json"))
-	return err == nil && b.Session == session
-}

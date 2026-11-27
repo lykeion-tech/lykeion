@@ -24,9 +24,6 @@ RETURNING *;
 INSERT INTO verification_code (email, code_hash, expires_at) VALUES (@email, @code_hash, @expires_at)
 ON CONFLICT (email) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0;
 
--- name: GetVerificationCode :one
-SELECT * FROM verification_code WHERE email = @email;
-
 -- name: BumpVerificationAttempts :exec
 UPDATE verification_code SET attempts = attempts + 1 WHERE email = @email;
 

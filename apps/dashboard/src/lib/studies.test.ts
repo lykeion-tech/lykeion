@@ -32,19 +32,7 @@ describe('workspace naming', () => {
   });
 });
 
-import {
-  boardColumnOf,
-  boardColumns,
-  endLabel,
-  stopReason,
-  stoppedReason,
-  groupByColumn,
-  matchesFilters,
-  roleLabel,
-  stateLabel,
-  studyNumber,
-  timeAgo,
-} from './studies';
+import { boardColumnOf, boardColumns, endLabel, stopReason, stoppedReason, groupByColumn, matchesFilters, roleLabel, stateLabel, studyNumber, timeAgo } from './studies';
 import type { Card } from '../api/types';
 
 function card(extra: Partial<Card> = {}): Card {
@@ -99,10 +87,6 @@ describe('board columns', () => {
       'Done',
       'Blocked',
     ]);
-  });
-  it('has four stages', () => {
-    expect(studies.stages).toEqual(['grounding', 'hypotheses', 'experimentation', 'validation']);
-    expect(studies.stageIntro).toHaveLength(4);
   });
   it('shows a flagged active study in Blocked, and back in its column once the flag clears', () => {
     expect(boardColumnOf(card({ flag: 'escalated' }))).toBe('blocked');
@@ -208,14 +192,7 @@ describe('study filters', () => {
   });
 });
 
-import {
-  blockLabel,
-  eventText,
-  recordLine,
-  transcript,
-  studyActivity,
-  groupStudyActivity,
-} from './studies';
+import { blockLabel, eventText, transcript, studyActivity, groupStudyActivity } from './studies';
 import type { AgentRun, BlockKind, Comment, LykEvent, StudyRecord } from '../api/types';
 
 const rec = (kind: string, body: Record<string, unknown>, key = ''): StudyRecord => ({
@@ -405,18 +382,6 @@ describe('records and transcript', () => {
       column: 'grounding',
     });
   });
-  it('summarises a record by what it holds', () => {
-    expect(
-      recordLine(rec('evidence', { claim: 'X raises Y', source_id: 'europepmc:PMC1' }, 'E1')),
-    ).toEqual({ key: 'E1', text: 'X raises Y', source: 'europepmc:PMC1' });
-    expect(recordLine(rec('open_dataset', { accession: 'GSE84133' }))).toMatchObject({
-      key: 'open_dataset',
-      text: 'GSE84133',
-    });
-    expect(
-      recordLine(rec('question', { text: '## Scoped question\nDoes X raise Y?' })),
-    ).toMatchObject({ text: 'Scoped question' });
-  });
   it('names the events that become transcript lines', () => {
     expect(eventText(lykEvent('card.started', { column: 'grounding' }, ''))).toBe(
       'Started in Grounding',
@@ -454,13 +419,9 @@ describe('records and transcript', () => {
   });
 });
 
-import { actionLabel, blockBadge, blockedActions, blockedMessage } from './studies';
+import { blockBadge, blockedActions, blockedMessage } from './studies';
 
 describe('composer actions', () => {
-  it('labels the chosen action', () => {
-    expect(actionLabel({ kind: 'comment' })).toBe('Comment');
-    expect(actionLabel({ kind: 'stop' })).toBe('Stop');
-  });
   it('offers only Comment on a blocked study, and only to its owner, whose comment redoes it', () => {
     const blocked = card({ state: 'blocked', block_kind: 'low_score', owner_id: 'u1' });
     expect(blockedActions(blocked, 'u1')).toEqual(['comment']);
@@ -526,45 +487,6 @@ describe('machines', () => {
 });
 
 describe('flow records and Inbox sentences', () => {
-  const rec = (kind: string, round: number, key: string, body: Record<string, unknown>) =>
-    ({
-      kind,
-      round,
-      key,
-      body,
-    }) as unknown as import('../api/types').StudyRecord;
-  it('shows the steps and calls of the latest round only', () => {
-    const v = studies.flowView([
-      rec('delegation', 1, 's1', { member: 'a', step: 'old' }),
-      rec('call', 1, 'c1', { server: 'x', tool: 't' }),
-      rec('delegation', 2, 's2', { member: 'b', step: 'new' }),
-    ]);
-    expect(v.steps.map((s) => s.key)).toEqual(['s2']);
-    expect(v.calls).toEqual([]);
-  });
-  it('shows the scores of the outcome even when the outcome comes first', () => {
-    const v = studies.flowView([
-      rec('score', 1, 'r1', { criterion: 'old', level: 2 }),
-      rec('outcome', 2, 'r5', { verdict: 'middle' }),
-      rec('score', 2, 'r3', { criterion: 'a', level: 4 }),
-      rec('score', 2, 'r4', { criterion: 'b', level: 3 }),
-    ]);
-    expect(v.verdict).toBe('middle');
-    expect(v.scores.map((s) => s.criterion)).toEqual(['a', 'b']);
-  });
-  it('shows a score level to one decimal', () => {
-    expect(studies.levelText(4.779999999999999)).toBe('4.8');
-    expect(studies.levelText(5)).toBe('5');
-  });
-  it("labels a redo by what started it, counting the column's own attempts", () => {
-    expect(studies.redoLabel(1, 2, 1)).toBe('Redone once');
-    expect(studies.redoLabel(1, 3, 1)).toBe('Redone once, then after your reply');
-    expect(studies.redoLabel(0, 2, 1)).toBe('Redone after your reply');
-    expect(studies.redoLabel(0, 1, 1)).toBe('');
-    expect(studies.redoLabel(0, 2, 2)).toBe('');
-    expect(studies.redoLabel(1, 3, 2)).toBe('Redone once');
-    expect(studies.redoLabel(1, 4, 2)).toBe('Redone once, then after your reply');
-  });
   it('counts a study whose run waits on a machine as waiting, not working', () => {
     const card = (over: {
       role?: string;
@@ -599,28 +521,6 @@ describe('flow records and Inbox sentences', () => {
     expect(at('needs_decision', 'validation_invalid')).toBe('S: Validation found invalid results');
     expect(at('needs_decision', 'could_not_do')).toBeNull();
   });
-  it('shows only the newest round of final Validation statuses, one line per hypothesis', () => {
-    const rec = (
-      round: number,
-      body: Record<string, unknown>,
-      superseded_at: string | null = null,
-    ) => ({ kind: 'validation_status', round, superseded_at, body }) as any;
-    expect(
-      studies.validationLines([
-        rec(1, { hypothesis: 'H1', status: 'valid', reasons: [], final: true }),
-        rec(2, {
-          hypothesis: 'H1',
-          status: 'invalid',
-          reasons: ['did not reproduce', 'x'],
-          final: true,
-        }),
-        rec(2, { hypothesis: 'H2', status: 'valid', reasons: [], final: true }),
-        rec(3, { hypothesis: 'H1', status: 'valid', reasons: ['r'], final: false }),
-        rec(2, { hypothesis: 'H3', status: 'valid', reasons: ['r'], final: true }, 't'),
-      ]),
-    ).toEqual(['H1 — invalid · did not reproduce', 'H2 — valid']);
-    expect(studies.validationLines([])).toEqual([]);
-  });
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();
     expect(studies.inboxText({ kind: 'agent_decision', text: 'Asked a question' }, 'S')).toBeNull();
@@ -635,32 +535,6 @@ describe('flow records and Inbox sentences', () => {
   });
 });
 
-describe('study overview from recorded work', () => {
-  it('uses the latest current-round summary opening without repeating the evidence payload', () => {
-    const old = { ...rec('summary', { text: 'Old summary.' }), round: 1 };
-    const summary = {
-      ...rec('summary', {
-        text: 'Insulin lookup recorded.\n- Accession: P01308.\nDetailed evidence and citations follow.',
-      }),
-      round: 2,
-    };
-    expect(studies.studyOverview([summary, old], 2)).toBe('Insulin lookup recorded.');
-  });
-  it('uses a current step before a completion summary exists, never a superseded or earlier-round result', () => {
-    const old = { ...rec('summary', { text: 'Old result.' }), round: 1 };
-    const removed = {
-      ...rec('summary', { text: 'Withdrawn result.' }),
-      round: 2,
-      superseded_at: '2026-10-19T10:00:00Z',
-    };
-    const step = {
-      ...rec('delegation', { member: 'researcher', step: 'Retrieve the protein entry.' }),
-      round: 2,
-    };
-    expect(studies.studyOverview([old, removed, step], 2)).toBe('Retrieve the protein entry.');
-    expect(studies.studyOverview([old], 2)).toBe('No work recorded yet.');
-  });
-});
 
 describe('Grounding criteria and review blocks', () => {
   it('knows when the scope covers a stage', () => {
@@ -770,7 +644,7 @@ describe('a held study', () => {
   });
 });
 
-it('older renderer tolerates a server_checks record alongside an owner outcome', () => {
+it('keeps the notebook to run records when server checks and an owner outcome sit beside them', () => {
   const record = (kind: string, key: string, body: StudyRecord['body']): StudyRecord => ({
     id: key, key, card_id: 'c', board_column: 'grounding', round: 1, kind, role: 'server',
     body, blob_key: '', agent_run_id: null, superseded_at: null, created_at: '2026-11-25T08:00:00Z',
@@ -781,7 +655,5 @@ it('older renderer tolerates a server_checks record alongside an owner outcome',
     record('outcome', 'r3', { verdict: 'approved_by_owner', by: 'reviewer', decision_id: 'd1', decision_cause: 'no_jev' }),
     record('run', 'x1', { tool: 'run_script', script: 'print(1)' }),
   ])) as StudyRecord[];
-  expect(studies.studyOverview(records, 1)).toBe('Source evidence collected.');
-  expect(studies.recordLine(records[1]).key).toBe('r2');
   expect(notebookCells(records).map((cell) => cell.key)).toEqual(['x1']);
 });

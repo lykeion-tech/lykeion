@@ -11,7 +11,7 @@ import (
 
 func TestAristotleTables(t *testing.T) {
 	env := testutil.Setup(t)
-	for _, name := range []string{"lab_chat", "lab_message", "lab_read", "lesson", "lesson_flag", "lesson_counter", "lesson_job", "lesson_card"} {
+	for _, name := range []string{"lab_chat", "lab_message", "lab_read", "lesson", "lesson_flag", "lesson_counter", "lesson_card"} {
 		var rls, granted bool
 		err := env.Owner.QueryRow(t.Context(), `SELECT relrowsecurity, has_table_privilege('lykeion_app',oid,'SELECT') AND has_table_privilege('lykeion_app',oid,'INSERT') AND CASE WHEN relname='lab_message' THEN
           has_column_privilege('lykeion_app',oid,'launch_sources','UPDATE') AND NOT has_column_privilege('lykeion_app',oid,'statements','UPDATE')
@@ -134,7 +134,7 @@ func TestLabEventsAfterAdvances(t *testing.T) {
 
 func TestAristotleMigrationReversible(t *testing.T) {
 	env := testutil.Setup(t)
-	for _, name := range []string{"0080_slack.down.sql", "0060_decision_draft_receipt.down.sql", "0059_decision_builder_machine.down.sql", "0058_project_delete.down.sql", "0057_manual_draft_application.down.sql", "0056_manual_draft_archives.down.sql", "0055_manual_decision_drafts.down.sql", "0054_manual_decisions.down.sql", "0053_lab_chat_deletion.down.sql"} {
+	for _, name := range []string{"0094_drop_lesson_jobs.down.sql", "0080_slack.down.sql", "0060_decision_draft_receipt.down.sql", "0059_decision_builder_machine.down.sql", "0058_project_delete.down.sql", "0057_manual_draft_application.down.sql", "0056_manual_draft_archives.down.sql", "0055_manual_decision_drafts.down.sql", "0054_manual_decisions.down.sql", "0053_lab_chat_deletion.down.sql"} {
 		q, err := fs.ReadFile(migrations.FS, name)
 		if err != nil {
 			t.Fatal(err)
@@ -207,9 +207,6 @@ func TestAristotleWorkspaceReferences(t *testing.T) {
 		{"read run", `INSERT INTO lab_read(workspace_id,agent_run_id,ref) VALUES($1,$2,'ref')`, []any{other, run}},
 		{"flag lesson", `INSERT INTO lesson_flag(workspace_id,lesson_id,user_id) VALUES($1,$2,$3)`, []any{other, lesson, u}},
 		{"counter lesson", `INSERT INTO lesson_counter(workspace_id,lesson_id,ref) VALUES($1,$2,'ref')`, []any{other, lesson}},
-		{"job lesson", `INSERT INTO lesson_job(workspace_id,lesson_id,due_at) VALUES($1,$2,now())`, []any{other, lesson}},
-		{"job card", `INSERT INTO lesson_job(workspace_id,card_id,due_at) VALUES($1,$2,now())`, []any{other, card}},
-		{"job decision", `INSERT INTO lesson_job(workspace_id,decision_id,due_at) VALUES($1,$2,now())`, []any{other, decision}},
 		{"lesson card", `INSERT INTO lesson_card(workspace_id,card_id,board_column) VALUES($1,$2,'grounding')`, []any{other, card}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -219,24 +216,10 @@ func TestAristotleWorkspaceReferences(t *testing.T) {
 	}
 }
 
-func TestAristotleDueJobs(t *testing.T) {
+func TestAristotleFunctionsAreNotPublic(t *testing.T) {
 	env := testutil.Setup(t)
 	ctx := t.Context()
-	_, ws, _ := seedWorkspace(t, env)
-	for _, q := range []string{
-		`INSERT INTO lesson_job(workspace_id,due_at) VALUES($1,now()-interval '1 hour')`,
-		`INSERT INTO lesson_job(workspace_id,due_at) VALUES($1,now()+interval '1 hour')`,
-		`INSERT INTO lesson_job(workspace_id,due_at,status) VALUES($1,now()-interval '1 hour','done')`,
-	} {
-		if _, err := env.Owner.Exec(ctx, q, ws); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var n int
-	if err := env.App.QueryRow(ctx, `SELECT count(*) FROM due_lesson_jobs(10)`).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("due jobs=%d err=%v", n, err)
-	}
-	for _, name := range []string{"lab_events_after(text,integer)", "lab_advance(text,bigint)", "due_lesson_jobs(integer)", "lab_run_can_read(uuid,uuid)"} {
+	for _, name := range []string{"lab_events_after(text,integer)", "lab_advance(text,bigint)", "lab_run_can_read(uuid,uuid)"} {
 		var public bool
 		if err := env.Owner.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_proc p, LATERAL aclexplode(p.proacl) a WHERE p.oid=$1::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE')`, name).Scan(&public); err != nil {
 			t.Fatal(err)
@@ -259,7 +242,6 @@ func TestAristotleFunctionsIgnoreTemporaryTables(t *testing.T) {
 		{`INSERT INTO lab_chat(id,workspace_id,owner_id) VALUES($1,$2,$3)`, []any{chat, ws, owner}},
 		{`INSERT INTO lab_message(workspace_id,chat_id,owner_id,kind,body) VALUES($1,$2,$3,'question','private')`, []any{ws, chat, owner}},
 		{`INSERT INTO event(workspace_id,type,actor_type) VALUES($1,'lab.shadow','system')`, []any{ws}},
-		{`INSERT INTO lesson_job(workspace_id,due_at) VALUES($1,now())`, []any{ws}},
 	} {
 		if _, err := env.Owner.Exec(ctx, q.sql, q.args...); err != nil {
 			t.Fatal(err)
@@ -277,7 +259,6 @@ func TestAristotleFunctionsIgnoreTemporaryTables(t *testing.T) {
 		`CREATE TEMP TABLE agent_run (id uuid,workspace_id uuid,kind text,status text,lab_chat_id uuid,requester_id uuid) ON COMMIT DROP`,
 		`CREATE TEMP TABLE event (LIKE public.event) ON COMMIT DROP`,
 		`CREATE TEMP TABLE lab_cursor (consumer text PRIMARY KEY,last_event_id bigint NOT NULL) ON COMMIT DROP`,
-		`CREATE TEMP TABLE lesson_job (LIKE public.lesson_job) ON COMMIT DROP`,
 		`INSERT INTO pg_temp.lab_cursor(consumer,last_event_id) VALUES('shadow',9223372036854775807)`,
 	} {
 		if _, err = tx.Exec(ctx, q); err != nil {
@@ -299,9 +280,6 @@ func TestAristotleFunctionsIgnoreTemporaryTables(t *testing.T) {
 	var n int
 	if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.lab_events_after('shadow',10)`).Scan(&n); err != nil || n != 1 {
 		t.Errorf("shadowed event/cursor: n=%d err=%v", n, err)
-	}
-	if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.due_lesson_jobs(10)`).Scan(&n); err != nil || n != 1 {
-		t.Errorf("shadowed jobs: n=%d err=%v", n, err)
 	}
 	if _, err = tx.Exec(ctx, `SELECT public.lab_advance('shadow',17)`); err != nil {
 		t.Fatal(err)

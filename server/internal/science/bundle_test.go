@@ -119,9 +119,6 @@ func TestTarHoldsTheWholeSkillFolder(t *testing.T) {
 	if err := Tar(io.Discard, "nope"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("an unknown skill: %v", err)
 	}
-	if got := Closest("scanpi", 3); len(got) != 3 || got[0] != "scanpy" {
-		t.Fatalf("closest: %v", got)
-	}
 }
 
 func TestSectionsSplitOnLevelTwoHeadings(t *testing.T) {

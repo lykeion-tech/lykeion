@@ -158,9 +158,6 @@ WHERE workspace_id = @workspace_id AND id = @id;
 UPDATE webhook_delivery SET state = 'pending', lease_until = now() + interval '30 seconds'
 WHERE workspace_id = @workspace_id AND id = @id AND state = 'dispatching';
 
--- name: ListDeliveries :many
-SELECT * FROM webhook_delivery WHERE workspace_id = @workspace_id AND trigger_id = @trigger_id ORDER BY received_at;
-
 -- name: SetCardOrigin :exec
 UPDATE card SET origin = @origin WHERE workspace_id = @workspace_id AND id = @id;
 
@@ -171,10 +168,6 @@ ORDER BY number LIMIT 1;
 
 -- name: LastOriginCard :one
 SELECT id FROM card WHERE workspace_id = @workspace_id AND origin = @origin ORDER BY number DESC LIMIT 1;
-
--- name: CardTriggerPayload :one
-SELECT body FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'trigger_payload'
-ORDER BY created_at DESC LIMIT 1;
 
 -- name: HasOnlineRuntime :one
 SELECT EXISTS (SELECT 1 FROM runtime WHERE workspace_id = @workspace_id AND owner_id = @owner_id

@@ -13,10 +13,6 @@ import AristotleWindow from './AristotleWindow.vue';
 import LabAnswer from './LabAnswer.vue';
 
 vi.mock('../coresearch/Aristotle.vue', () => ({ default: { render: () => null } }));
-vi.mock('vue-spinner', async () => {
-  const { h } = await import('vue');
-  return { RingLoader: { render: () => h('div', { class: 'v-spinner' }) } };
-});
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   cleanups.splice(0).forEach((fn) => fn());
@@ -352,7 +348,7 @@ it('keeps waiting for the second question when the first fails out of order', as
   await t.click('Switch chat');
   await t.click('Overlapping questions');
   expect(textOf(t.root)).toContain('Working…');
-  expect(all(t.root).some((n) => String(n.props.class).includes('v-spinner'))).toBe(true);
+  expect(all(t.root).some((n) => String(n.props.class).includes('run-status-spinner'))).toBe(true);
   expect(textOf(t.root)).not.toContain('Retry question');
 });
 

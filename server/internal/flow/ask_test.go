@@ -196,7 +196,7 @@ func TestAskFromMemberMustBeOnTheTeam(t *testing.T) {
 				"options": []any{map[string]any{"id": "pay", "label": "Pay", "consequence": "The study buys it."},
 					map[string]any{"id": "skip", "label": "Skip", "consequence": "The study uses free data."}}}})
 		hs := handin.HandIns{Runs: l.e.AgentRuns}
-		probs, err := hs.Submit(ctx, l.owner, ref, run.ID, raw)
+		probs, err := hs.SubmitWithMessageSeq(ctx, l.owner, ref, run.ID, raw, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -57,16 +57,12 @@ type handInBody struct {
 	ConvertedRecords         []uuid.UUID     `json:"converted_records,omitempty"`
 }
 
-// Submit checks the hand-in of run's attempt ref.Attempt and, when nothing is
+// SubmitWithMessageSeq checks the hand-in of run's attempt ref.Attempt and, when nothing is
 // wrong with it, records it and the records it becomes, in one transaction
 // with the study locked. Each problem is one plain line for the agent; with
 // any, no hand-in is accepted. A lab attempt that saw revoked content is
 // marked for a fresh session. A hand-in already recorded for the attempt is
 // accepted again and writes nothing.
-func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.RuntimeRef, run uuid.UUID, raw json.RawMessage) ([]string, error) {
-	return s.SubmitWithMessageSeq(ctx, user, ref, run, raw, 0)
-}
-
 func (s *HandIns) SubmitWithMessageSeq(ctx context.Context, user uuid.UUID, ref service.RuntimeRef, run uuid.UUID, raw json.RawMessage, messageSeq int32) ([]string, error) {
 	return s.SubmitWithEnvironment(ctx, user, ref, run, raw, messageSeq, nil)
 }

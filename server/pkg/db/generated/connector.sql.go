@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -204,47 +203,4 @@ func (q *Queries) PutConnectorFetch(ctx context.Context, arg PutConnectorFetchPa
 		arg.Truncated,
 	)
 	return err
-}
-
-const updateWorkspaceConnector = `-- name: UpdateWorkspaceConnector :one
-UPDATE workspace_connector
-SET enabled = $1, key_ciphertext = $2, licence_confirmed_by = $3,
-    licence_confirmed_at = $4, updated_by = $5, updated_at = now()
-WHERE workspace_id = $6 AND name = $7
-RETURNING workspace_id, name, enabled, key_ciphertext, licence_confirmed_by, licence_confirmed_at, updated_by, updated_at, revision
-`
-
-type UpdateWorkspaceConnectorParams struct {
-	Enabled            bool       `json:"enabled"`
-	KeyCiphertext      []byte     `json:"key_ciphertext"`
-	LicenceConfirmedBy *uuid.UUID `json:"licence_confirmed_by"`
-	LicenceConfirmedAt *time.Time `json:"licence_confirmed_at"`
-	UpdatedBy          uuid.UUID  `json:"updated_by"`
-	WorkspaceID        uuid.UUID  `json:"workspace_id"`
-	Name               string     `json:"name"`
-}
-
-func (q *Queries) UpdateWorkspaceConnector(ctx context.Context, arg UpdateWorkspaceConnectorParams) (WorkspaceConnector, error) {
-	row := q.db.QueryRow(ctx, updateWorkspaceConnector,
-		arg.Enabled,
-		arg.KeyCiphertext,
-		arg.LicenceConfirmedBy,
-		arg.LicenceConfirmedAt,
-		arg.UpdatedBy,
-		arg.WorkspaceID,
-		arg.Name,
-	)
-	var i WorkspaceConnector
-	err := row.Scan(
-		&i.WorkspaceID,
-		&i.Name,
-		&i.Enabled,
-		&i.KeyCiphertext,
-		&i.LicenceConfirmedBy,
-		&i.LicenceConfirmedAt,
-		&i.UpdatedBy,
-		&i.UpdatedAt,
-		&i.Revision,
-	)
-	return i, err
 }

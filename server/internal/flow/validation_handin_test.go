@@ -105,7 +105,7 @@ func TestAnExperimentationHandInIsValidatedFromItsOwnRecords(t *testing.T) {
 		}}
 	raw, _ := json.Marshal(in)
 	hs := handin.HandIns{Runs: l.e.AgentRuns, SentBack: l.e.SentBack}
-	if probs, err := hs.Submit(ctx, l.owner, ref, lead.ID, raw); err != nil || len(probs) > 0 {
+	if probs, err := hs.SubmitWithMessageSeq(ctx, l.owner, ref, lead.ID, raw, 0); err != nil || len(probs) > 0 {
 		t.Fatalf("the Experimentation hand-in: %v %v", probs, err)
 	}
 

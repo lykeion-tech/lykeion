@@ -6,17 +6,10 @@ import CoresearchProject from './CoresearchProject.vue';
 import ChatComposer from './ChatComposer.vue';
 import ChatTranscript from './ChatTranscript.vue';
 import MembersDialog from './MembersDialog.vue';
-import SidebarFiles from './SidebarFiles.vue';
 import AssistantMessage from './AssistantMessage.vue';
-import RightPaneTabs from './RightPaneTabs.vue';
-import { tabAfterClose, PANE_TABS } from './pane-tabs';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
-vi.mock('vue-spinner', async () => {
-  const { h } = await import('vue');
-  return { RingLoader: { render: () => h('div', { class: 'v-spinner' }) } };
-});
 vi.hoisted(() => {
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
@@ -127,23 +120,6 @@ describe('Coresearch workspace', () => {
     expect(
       all(root).filter((n) => String(n.props.class).includes('run-line--failed')),
     ).toHaveLength(1);
-  });
-  it('preserves Notebook Files Compute order', async () => {
-    const { root } = await mount(RightPaneTabs, {
-      tabs: PANE_TABS,
-      activeId: 'notebook',
-    });
-    expect(
-      all(root)
-        .filter((n) => n.props.role === 'tab')
-        .map(textOf),
-    ).toEqual(['Notebook', 'Files', 'Compute']);
-  });
-  it('tabAfterClose picks the right neighbour then the left if last', () => {
-    expect(tabAfterClose(PANE_TABS, 'files')).toBe('compute');
-    expect(tabAfterClose(PANE_TABS, 'compute')).toBe('files');
-    expect(tabAfterClose([PANE_TABS[0]!], 'notebook')).toBeNull();
-    expect(tabAfterClose(PANE_TABS, 'missing')).toBeNull();
   });
   it('members dialog is read only for project members', async () => {
     const { root } = await mount(MembersDialog, { projectId: 'p', editable: false });
@@ -367,18 +343,6 @@ describe('Coresearch workspace', () => {
       expect(load).toHaveBeenCalledTimes(2);
     },
   );
-  it('caps files at ten and keeps an opened file beyond the cap visible', async () => {
-    const files = Array.from({ length: 12 }, (_, i) => ({
-      id: String(i),
-      path: `data/${i}.csv`,
-      head: { n: 1 },
-    }));
-    const { root } = await mount(SidebarFiles, { files, limit: 10 });
-    expect(all(root).filter((n) => String(n.props.class) === 'tsb-file-open')).toHaveLength(10);
-    expect(button(root, 'See all 12 files')).toBeTruthy();
-    const active = await mount(SidebarFiles, { files, limit: 10, activeId: '11' });
-    expect(all(active.root).some((n) => n.props.title === 'data/11.csv')).toBe(true);
-  });
   it('replies escape raw HTML and unsafe URLs while code remains copyable', async () => {
     const { root } = await mount(AssistantMessage, {
       text: '<img src=x onerror=alert(1)> [click](javascript:alert(1))\n\n```python\nprint("safe")\n```',

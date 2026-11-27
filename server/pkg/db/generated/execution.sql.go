@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const acceptMachineAttempt = `-- name: AcceptMachineAttempt :exec
@@ -2139,48 +2138,6 @@ func (q *Queries) SupersedeRoleRecords(ctx context.Context, arg SupersedeRoleRec
 		arg.Role,
 	)
 	return err
-}
-
-const sweepAgentRuns = `-- name: SweepAgentRuns :many
-SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, status::text AS status
-FROM sweep_agent_runs()
-`
-
-type SweepAgentRunsRow struct {
-	AgentRunID  uuid.UUID `json:"agent_run_id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	Status      string    `json:"status"`
-}
-
-func (q *Queries) SweepAgentRuns(ctx context.Context) ([]SweepAgentRunsRow, error) {
-	rows, err := q.db.Query(ctx, sweepAgentRuns)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []SweepAgentRunsRow
-	for rows.Next() {
-		var i SweepAgentRunsRow
-		if err := rows.Scan(&i.AgentRunID, &i.WorkspaceID, &i.Status); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const sweepRuntimes = `-- name: SweepRuntimes :one
-SELECT sweep_runtimes($1::interval)::int AS n
-`
-
-func (q *Queries) SweepRuntimes(ctx context.Context, stale pgtype.Interval) (int32, error) {
-	row := q.db.QueryRow(ctx, sweepRuntimes, stale)
-	var n int32
-	err := row.Scan(&n)
-	return n, err
 }
 
 const touchRuntime = `-- name: TouchRuntime :execrows

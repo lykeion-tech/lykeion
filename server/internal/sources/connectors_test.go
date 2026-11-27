@@ -257,7 +257,7 @@ func TestAFetchWritesACallRecord(t *testing.T) {
 		var blob string
 		f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error {
 			v, _ := records.Load(ctx, tx, f.blobs, card, "grounding")
-			r, found := v.ByKey("call", key)
+			r, found := byKey(v, "call", key)
 			if !found || r.Role != "agent" {
 				t.Errorf("no %s record by the run: %+v", key, r)
 			}
@@ -308,7 +308,7 @@ func TestAnAnswerOverTheBodyLimitKeepsItsRestAsABlob(t *testing.T) {
 	}
 	f.st.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error {
 		v, _ := records.Load(ctx, tx, f.blobs, f.card, "grounding")
-		r, _ := v.ByKey("call", "c1")
+		r, _ := byKey(v, "call", "c1")
 		b := records.Body[struct {
 			Answer       string
 			AnswerSHA256 string `json:"answer_sha256"`

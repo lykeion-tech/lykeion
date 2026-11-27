@@ -59,14 +59,6 @@ export function selectableCareerStage(value?: string): CareerStage {
   return careerStageChoices.find((stage) => stage === value) ?? '';
 }
 
-// The four stages, one line each, as the Welcome step introduces them.
-export const stageIntro = [
-  { name: 'Grounding', line: 'Find the literature and data that bear on the question.' },
-  { name: 'Hypotheses', line: 'Form rival hypotheses that an experiment can tell apart.' },
-  { name: 'Experimentation', line: 'Run the analysis and keep reproducible results.' },
-  { name: 'Validation', line: 'Independent reviewers test the findings.' },
-];
-
 export type BoardColumn = Column | 'blocked';
 
 export const boardColumns: { id: BoardColumn; name: string }[] = [
@@ -184,24 +176,6 @@ export function matchesFilters(card: Card, filters: StudyFilters): boolean {
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
-// What a record holds, in one line: its claim, its first line of text, the
-// dataset or search it names, or its reason.
-export function recordLine(r: StudyRecord) {
-  const b = r.body;
-  const firstLine =
-    str(b.text)
-      .replace(/^#+\s*/, '')
-      .split('\n')[0] ?? '';
-  const text =
-    str(b.claim) ||
-    firstLine ||
-    str(b.accession) ||
-    str(b.query) ||
-    str(b.reason) ||
-    str(b.check) ||
-    r.kind;
-  return { key: r.key || r.kind, text, source: str(b.source_id) };
-}
 
 const steered: Record<string, () => string> = {
   resume: () => 'Resumed',
@@ -378,88 +352,6 @@ export function blockedActions(card: Card, viewer: string | undefined): Composer
   return card.block_kind === 'parked' || card.owner_id === viewer ? ['comment'] : [];
 }
 
-export function actionLabel(a: ComposerAction): string {
-  return { comment: 'Comment', stop: 'Stop' }[a.kind];
-}
-
-// A score level to one decimal; Jev's levels are floats like 4.779999999999999.
-export const levelText = (level: number): string => String(Math.round(level * 10) / 10);
-
-// What redid a low-scored attempt: the automatic redo (the card's redos) and
-// the redos the owner's comments started. The column's attempts run from its
-// first round (a column advance also raises the card's round) to the current one.
-export function redoLabel(redos: number, round: number, firstRound: number): string {
-  const afterReply = Math.max(0, round - firstRound - redos);
-  if (redos >= 1 && afterReply >= 1) return 'Redone once, then after your reply';
-  if (redos >= 1) return 'Redone once';
-  return afterReply >= 1 ? 'Redone after your reply' : '';
-}
-
-export interface FlowView {
-  scores: { criterion: string; level: number }[];
-  verdict: string;
-  steps: { key: string; text: string; self: boolean; detail: string }[];
-  audit: { text: string; findings: string[] } | null;
-  calls: { key: string; server: string; tool: string; at: string; answer: string }[];
-}
-
-const strings = (v: unknown): string[] =>
-  Array.isArray(v)
-    ? v.map((x) => (typeof x === 'string' ? x : str((x as Record<string, unknown>)?.text)))
-    : [];
-
-// The flow's own records of a column, in the order they were written: the
-// steps and calls of the latest attempt (round), the auditor's note, and the
-// latest scored attempt.
-export function flowView(recs: StudyRecord[]): FlowView {
-  const out: FlowView = { scores: [], verdict: '', steps: [], audit: null, calls: [] };
-  const scored = new Map<number, FlowView['scores']>();
-  let outcomeRound = -1;
-  const latest = Math.max(0, ...recs.map((r) => r.round));
-  for (const r of recs) {
-    const b = r.body;
-    if (
-      r.round !== latest &&
-      (r.kind === 'delegation' || r.kind === 'self_step' || r.kind === 'call')
-    )
-      continue;
-    if (r.kind === 'delegation')
-      out.steps.push({
-        key: r.key,
-        text: `Leader → ${str(b.member)}: ${str(b.step)}`,
-        self: false,
-        detail: '',
-      });
-    else if (r.kind === 'self_step')
-      out.steps.push({
-        key: r.key,
-        text: 'The leader did this itself — no member fit',
-        self: true,
-        detail: str(b.step),
-      });
-    else if (r.kind === 'audit') out.audit = { text: str(b.text), findings: strings(b.findings) };
-    else if (r.kind === 'call')
-      out.calls.push({
-        key: r.key,
-        server: str(b.server),
-        tool: str(b.tool),
-        at: str(b.at),
-        answer: str(b.answer),
-      });
-    else if (r.kind === 'score')
-      scored.set(r.round, [
-        ...(scored.get(r.round) ?? []),
-        { criterion: str(b.criterion), level: Number(b.level) },
-      ]);
-    else if (r.kind === 'outcome' && r.round >= outcomeRound) {
-      outcomeRound = r.round;
-      out.verdict = str(b.verdict);
-    }
-  }
-  out.scores = scored.get(outcomeRound) ?? [];
-  return out;
-}
-
 // How many studies have an agent at work, and how many have a run waiting
 // on a machine; a run queued for a free slot is neither.
 export function boardActivity(
@@ -587,25 +479,6 @@ const decisionLabels: Record<string, string> = {
   validation_invalid: 'Validation found invalid results',
 };
 
-// Validation's final statuses, one line per hypothesis: "<hypothesis> —
-// <status> · <first reason>". A route-back leaves earlier rounds' statuses
-// live, so only the newest round that has final statuses is shown.
-export function validationLines(records: StudyRecord[]): string[] {
-  const final = records.filter(
-    (r) => r.kind === 'validation_status' && !r.superseded_at && r.body.final === true,
-  );
-  const newest = Math.max(...final.map((r) => r.round));
-  return final
-    .filter((r) => r.round === newest)
-    .map((r) => {
-      const reasons = Array.isArray(r.body.reasons) ? r.body.reasons : [];
-      const what = str(r.body.hypothesis).trim();
-      const clipped = what.length > 60 ? `${what.slice(0, 60)}…` : what;
-      const verdict = [str(r.body.status), ...reasons.slice(0, 1).map(str)].join(' · ');
-      return clipped ? `${clipped} — ${verdict}` : verdict;
-    });
-}
-
 export function inboxText(
   item: { kind: DecisionItem['kind']; text: string; cause?: string | null },
   study: string,
@@ -657,21 +530,6 @@ export function coversStage(stage: Column, range: Range | null, teamColumns: str
   if (!range) return teamColumns.includes(stage);
   const at = (s: string) => stages.indexOf(s as Column);
   return at(range.from) <= at(stage) && at(stage) <= at(range.to);
-}
-
-// Use the current round's recorded conclusion, or its latest assigned step.
-// The complete records remain available in the study's evidence disclosure.
-export function studyOverview(records: StudyRecord[], round: number): string {
-  const current = records
-    .filter((r) => r.round === round && !r.superseded_at)
-    .reverse()
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  const summary = current.find((r) => r.kind === 'summary' && str(r.body.text).trim());
-  const step = current.find(
-    (r) => ['delegation', 'self_step'].includes(r.kind) && str(r.body.step).trim(),
-  );
-  const text = summary ? str(summary.body.text) : step ? str(step.body.step) : '';
-  return text.trim().split('\n')[0] || 'No work recorded yet.';
 }
 
 // Older runs stored coordination envelopes as their assignment. Present the

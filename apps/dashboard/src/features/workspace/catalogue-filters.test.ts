@@ -39,15 +39,6 @@ vi.mock('../../api/library', () => {
   };
 });
 vi.mock('../../api/queries', () => ({ useWorkspaces: () => ({ data: ref([]) }) }));
-vi.mock('../../state/availability', () => ({
-  useAvailabilityChanges: () => ({
-    error: ref(''),
-    allowed: ref(false),
-    catalogueAllowed: ref(false),
-    pending: ref(''),
-    toggle: vi.fn(),
-  }),
-}));
 
 const apps: ReturnType<typeof createTreeApp>[] = [];
 afterEach(() => {

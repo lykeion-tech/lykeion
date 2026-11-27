@@ -444,14 +444,6 @@ func cut(s string, n int) string {
 	return s[:n]
 }
 
-func (b *Bases) EnsureAll(ctx context.Context) map[string]error {
-	errs := map[string]error{}
-	for _, lang := range []string{Python, R, Julia} {
-		errs[lang] = b.Ensure(ctx, lang)
-	}
-	return errs
-}
-
 func (b *Bases) micromamba(ctx context.Context, plat string) (string, error) {
 	bin := filepath.Join(b.Dir, "micromamba", micromambaVersion, "micromamba")
 	if _, err := os.Stat(bin); err == nil {

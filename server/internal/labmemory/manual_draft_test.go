@@ -81,12 +81,12 @@ func TestManualDraftEvidenceAuthorization(t *testing.T) {
 				}
 				return
 			}
-			p, e := x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, raw)
+			p, e := x.h.SubmitWithMessageSeq(t.Context(), x.user, x.ref, x.run.ID, raw, 0)
 			if tc == "valid" {
 				if e != nil || len(p) > 0 {
 					t.Fatal(e, p)
 				}
-				if p, e = x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, raw); e != nil || len(p) > 0 {
+				if p, e = x.h.SubmitWithMessageSeq(t.Context(), x.user, x.ref, x.run.ID, raw, 0); e != nil || len(p) > 0 {
 					t.Fatal("replay", e, p)
 				}
 				var n int
@@ -143,7 +143,7 @@ func TestManualDraftCancellationAndMemberRemoval(t *testing.T) {
 				x.log(note.String(), "read")
 				x.exec("DELETE FROM card WHERE id=$1", x.study)
 			}
-			p, e := x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil))
+			p, e := x.h.SubmitWithMessageSeq(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil), 0)
 			if e == nil && len(p) == 0 {
 				t.Fatal("unavailable turn published a proposal")
 			}
@@ -173,7 +173,7 @@ func TestManualDraftRunEventsArePrivate(t *testing.T) {
 func TestManualDraftRetainsInputStudyDependency(t *testing.T) {
 	x := runningDraft(t)
 	x.exec("UPDATE lab_message SET context_card_id=$1 WHERE agent_run_id=$2 AND kind='question'", x.study, x.run.ID)
-	if p, e := x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil)); e != nil || len(p) > 0 {
+	if p, e := x.h.SubmitWithMessageSeq(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil), 0); e != nil || len(p) > 0 {
 		t.Fatal(e, p)
 	}
 	x.exec("DELETE FROM card WHERE id=$1", x.study)
@@ -202,7 +202,7 @@ func TestManualDraftDeletedInputStudyCannotLaunchOrPublish(t *testing.T) {
 			x.exec("UPDATE lab_message SET body=$1,context_card_id=$2 WHERE agent_run_id=$3 AND kind='question'", string(body), x.study, x.run.ID)
 			x.exec("DELETE FROM card WHERE id=$1", x.study)
 			if phase == "publish" {
-				p, e := x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil))
+				p, e := x.h.SubmitWithMessageSeq(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil), 0)
 				if e == nil && len(p) == 0 {
 					t.Fatal("deleted input context published")
 				}
@@ -224,7 +224,7 @@ func TestManualDraftArchivedTurnCanSettle(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if p, e := x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil, ref)); e != nil || len(p) > 0 {
+	if p, e := x.h.SubmitWithMessageSeq(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil, ref), 0); e != nil || len(p) > 0 {
 		t.Fatal(e, p)
 	}
 	e = x.runs.Store.InWorkspace(t.Context(), x.ws, x.user, func(tx *store.Tx) error {
@@ -254,7 +254,7 @@ func TestManualDraftAppliedMarkerPersistsWithEdits(t *testing.T) {
 	x := runningDraft(t)
 	ref := Ref{Kind: "record", ID: x.record}.String()
 	x.log(ref, "read")
-	if p, e := x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil, ref)); e != nil || len(p) > 0 {
+	if p, e := x.h.SubmitWithMessageSeq(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil, ref), 0); e != nil || len(p) > 0 {
 		t.Fatal(e, p)
 	}
 	var answer uuid.UUID

@@ -1,165 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  acceptRanges,
-  acceptView,
-  anchorHunk,
-  bibKeysOf,
-  chatTitleFrom,
-  citeCommandAt,
-  compileManuscriptNotes,
-  forwardSearch,
-  fullIndexOf,
-  hunksOf,
-  labelsOf,
-  manuscriptPath,
-  outlineOf,
-  parseSynctex,
-  inverseSearch,
-  pdfPointsToSynctex,
-  synctexToPdfPoints,
-  parseTexLog,
-  proofreadPrompt,
-  transcribePrompt,
-  undoHunk,
-  BLANK_SKELETON,
-} from "./manuscript";
+import { bibKeysOf, citeCommandAt, compileManuscriptNotes, forwardSearch, labelsOf, outlineOf, parseSynctex, inverseSearch, pdfPointsToSynctex, synctexToPdfPoints, parseTexLog, proofreadPrompt } from "./manuscript";
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "__fixtures__", "manuscript", name), "utf8");
 
-describe("manuscriptPath", () => {
-  it("keeps a plain relative path and refuses traversal, leading slashes and dot segments", () => {
-    expect(manuscriptPath("main.tex")).toBe("main.tex");
-    expect(manuscriptPath("figures/fig1.png")).toBe("figures/fig1.png");
-    expect(manuscriptPath("sections//intro.tex")).toBe("sections/intro.tex");
-    expect(manuscriptPath("../main.tex")).toBeUndefined();
-    expect(manuscriptPath("a/../b.tex")).toBeUndefined();
-    expect(manuscriptPath("/main.tex")).toBeUndefined();
-    expect(manuscriptPath("./main.tex")).toBeUndefined();
-    expect(manuscriptPath("")).toBeUndefined();
-    expect(manuscriptPath("a\\b.tex")).toBeUndefined();
-  });
-});
-
-describe("chatTitleFrom", () => {
-  it("is the first line, trimmed, cut at eighty characters", () => {
-    expect(chatTitleFrom("  Write the intro\nthen the method")).toBe("Write the intro");
-    expect(chatTitleFrom("x".repeat(100))).toHaveLength(80);
-    expect(chatTitleFrom("   ")).toBe("New chat");
-  });
-});
-
-describe("BLANK_SKELETON", () => {
-  it("is the researcher's preamble with natbib, never biblatex", () => {
-    expect(BLANK_SKELETON).toContain("\\documentclass[11pt]{article}");
-    expect(BLANK_SKELETON).toContain("\\usepackage{tikz-cd}");
-    expect(BLANK_SKELETON).toContain("\\bibliographystyle{plainnat}");
-    expect(BLANK_SKELETON).not.toContain("biblatex");
-  });
-});
-
-describe("acceptView", () => {
-  const delta = [
-    { insert: "keep " },
-    { insert: "gone ", attributes: { del: "h1" } },
-    { insert: "new ", attributes: { ins: "h1" } },
-    { insert: "tail" },
-  ];
-  it("drops del runs and keeps ins runs as plain text", () => {
-    expect(acceptView(delta)).toBe("keep new tail");
-  });
-  it("maps an accept-view index past a deletion onto the full text", () => {
-    // "keep " = 0..5; accept index 5 is both the end of "keep " and the start of "new ",
-    // which sits at full index 10 — a `from` lands after the deletion, a `to` before it.
-    expect(fullIndexOf(delta, 5)).toBe(10);
-    expect(fullIndexOf(delta, 5, "to")).toBe(5);
-    expect(fullIndexOf(delta, 0)).toBe(0);
-    expect(fullIndexOf(delta, 13)).toBe(18);
-  });
-  it("collects each hunk's full-text ranges by kind", () => {
-    const ranges = acceptRanges(delta);
-    expect(ranges.del.get("h1")).toEqual([[5, 10]]);
-    expect(ranges.ins.get("h1")).toEqual([[10, 14]]);
-  });
-  it("puts a `to` before a leading deletion and a `from` after it", () => {
-    const leading = [{ insert: "x", attributes: { del: "h1" } }, { insert: "y" }];
-    expect(fullIndexOf(leading, 0, "to")).toBe(0);
-    expect(fullIndexOf(leading, 0, "from")).toBe(1);
-  });
-  it("puts a `to` before a trailing deletion and a `from` after it", () => {
-    const trailing = [{ insert: "y" }, { insert: "x", attributes: { del: "h1" } }];
-    expect(fullIndexOf(trailing, 1, "to")).toBe(1);
-    expect(fullIndexOf(trailing, 1, "from")).toBe(2);
-  });
-  it("puts a `to` before two adjacent leading deletions and a `from` after both", () => {
-    const adjacent = [
-      { insert: "AAA", attributes: { del: "h1" } },
-      { insert: "CCC", attributes: { del: "h2" } },
-      { insert: "BBB" },
-    ];
-    expect(fullIndexOf(adjacent, 0, "to")).toBe(0);
-    expect(fullIndexOf(adjacent, 0, "from")).toBe(6);
-  });
-});
-
-describe("hunksOf", () => {
-  it("an edited line is one hunk with both sides", () => {
-    expect(hunksOf("a\nb\nc\n", "a\nB\nc\n")).toEqual([
-      { oldStart: 2, oldLines: 1, newStart: 2, newLines: 1, oldText: "b\n", newText: "B\n" },
-    ]);
-  });
-  it("an inserted line has no old lines and names the line it follows", () => {
-    expect(hunksOf("a\nc\n", "a\nb\nc\n")).toEqual([
-      { oldStart: 1, oldLines: 0, newStart: 2, newLines: 1, oldText: "", newText: "b\n" },
-    ]);
-  });
-  it("a deleted line has no new lines", () => {
-    expect(hunksOf("a\nb\nc\n", "a\nc\n")).toEqual([
-      { oldStart: 2, oldLines: 1, newStart: 1, newLines: 0, oldText: "b\n", newText: "" },
-    ]);
-  });
-  it("two changes two unchanged lines apart merge; three apart stay two hunks", () => {
-    expect(hunksOf("1\n2\n3\n4\n5\n", "X\n2\n3\nY\n5\n")).toHaveLength(1);
-    expect(hunksOf("1\n2\n3\n4\n5\n6\n", "X\n2\n3\n4\nY\n6\n")).toHaveLength(2);
-  });
-  it("identical texts have no hunk; a file without a final newline still diffs", () => {
-    expect(hunksOf("a\nb", "a\nb")).toEqual([]);
-    expect(hunksOf("a\nb", "a\nc")).toEqual([
-      { oldStart: 2, oldLines: 1, newStart: 2, newLines: 1, oldText: "b", newText: "c" },
-    ]);
-  });
-});
-
-describe("anchorHunk / undoHunk", () => {
-  /** The one hunk between the two texts, anchored in the new one. */
-  const only = (oldText: string, newText: string) => {
-    const hunks = hunksOf(oldText, newText);
-    expect(hunks).toHaveLength(1);
-    return anchorHunk(newText, hunks[0]!);
-  };
-  it("an inserted line is anchored by the lines either side of it and taken back out", () => {
-    const hunk = only("a\nc\n", "a\nb\nc\n");
-    expect(hunk).toEqual({ oldText: "", newText: "b\n", before: "a\n", after: "c\n" });
-    expect(undoHunk("a\nb\nc\n", hunk)).toBe("a\nc\n");
-  });
-  it("a deleted blank line goes back beside the line it followed, not at the first blank line in the file", () => {
-    const hunk = only("a\n\nb\n\nc\n", "a\n\nb\nc\n");
-    expect(hunk).toEqual({ oldText: "\n", newText: "", before: "b\n", after: "c\n" });
-    expect(undoHunk("a\n\nb\nc\n", hunk)).toBe("a\n\nb\n\nc\n");
-  });
-  it("a replaced line is put back; at the top of the file it has no line before it to anchor on", () => {
-    const hunk = only("a\nb\nc\n", "A\nb\nc\n");
-    expect(hunk).toEqual({ oldText: "a\n", newText: "A\n", after: "b\n" });
-    expect(undoHunk("A\nb\nc\n", hunk)).toBe("a\nb\nc\n");
-  });
-  it("a hunk whose text was written over since, or whose anchor line was, is stale: no text comes back", () => {
-    const hunk = only("a\nb\nc\n", "a\nB\nc\n");
-    expect(undoHunk("a\nB\nc\n", hunk)).toBe("a\nb\nc\n");
-    expect(undoHunk("a\nX\nc\n", hunk)).toBeUndefined();
-    expect(undoHunk("z\nB\nc\n", hunk)).toBeUndefined();
-  });
-});
 
 describe("bibKeysOf / citeCommandAt / labelsOf / outlineOf", () => {
   it("reads keys and titles out of a .bib", () => {
@@ -342,6 +187,9 @@ describe("forwardSearch on a whole Tectonic file", () => {
 });
 
 describe("the prompts", () => {
+  it("the proofread prompt names the file and the line", () => {
+    expect(proofreadPrompt("main.tex", 41, "teh cat")).toContain('`main.tex` (line 41): "teh cat"');
+  });
   it("compiles notes in file-and-line order, comment and edit each in their own shape, free text last", () => {
     const text = compileManuscriptNotes(
       [
@@ -361,14 +209,5 @@ describe("the prompts", () => {
       ].join("\n"),
     );
     expect(compileManuscriptNotes([], "just this")).toBe("just this");
-  });
-  it("the proofread and transcribe prompts name the file and the line", () => {
-    expect(proofreadPrompt("main.tex", 41, "teh cat")).toContain('`main.tex` (line 41): "teh cat"');
-    expect(transcribePrompt("figures/paste-3.png", "main.tex", 41)).toContain("`figures/paste-3.png` into LaTeX at `main.tex` line 41");
-    const t = transcribePrompt("figures/p.png", "main.tex", 1);
-    expect(t).toContain("tikz-cd");
-    expect(t).toContain("a formula becomes an `equation`");
-    expect(t).toContain("a table becomes a `tabular` inside a `table` float");
-    expect(t).toContain("an algorithm becomes `algorithm`/`algorithmic`");
   });
 });

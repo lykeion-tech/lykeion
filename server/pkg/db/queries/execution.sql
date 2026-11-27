@@ -184,13 +184,6 @@ SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id,
   role::text AS role, board_column::text AS board_column, round::int AS round, scopes::text[] AS scopes
 FROM agent_run_token_lookup(@token_hash::text);
 
--- name: SweepRuntimes :one
-SELECT sweep_runtimes(@stale::interval)::int AS n;
-
--- name: SweepAgentRuns :many
-SELECT agent_run_id::uuid AS agent_run_id, workspace_id::uuid AS workspace_id, status::text AS status
-FROM sweep_agent_runs();
-
 -- name: InsertRecord :one
 INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id)
 VALUES (@workspace_id, @card_id, @board_column, @round, @kind, @role, @key, @body, @blob_key, @agent_run_id)

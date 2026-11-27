@@ -938,34 +938,6 @@ func (q *Queries) ReserveComment(ctx context.Context, arg ReserveCommentParams) 
 	return err
 }
 
-const reserveLiveComment = `-- name: ReserveLiveComment :execrows
-INSERT INTO comment_reservation(workspace_id, comment_id, agent_run_id, attempt, delivery_channel)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (workspace_id, comment_id) DO NOTHING
-`
-
-type ReserveLiveCommentParams struct {
-	WorkspaceID     uuid.UUID `json:"workspace_id"`
-	CommentID       uuid.UUID `json:"comment_id"`
-	AgentRunID      uuid.UUID `json:"agent_run_id"`
-	Attempt         int32     `json:"attempt"`
-	DeliveryChannel string    `json:"delivery_channel"`
-}
-
-func (q *Queries) ReserveLiveComment(ctx context.Context, arg ReserveLiveCommentParams) (int64, error) {
-	result, err := q.db.Exec(ctx, reserveLiveComment,
-		arg.WorkspaceID,
-		arg.CommentID,
-		arg.AgentRunID,
-		arg.Attempt,
-		arg.DeliveryChannel,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const resolveCardInbox = `-- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
 WHERE workspace_id = $1 AND card_id = $2 AND kind <> 'manual_decision' AND (kind IN ('escalated', 'blocked', 'scoring_unavailable') OR kind = 'waiting_for_machine' AND cause = 'environment_unavailable') AND resolved_at IS NULL
@@ -1045,54 +1017,6 @@ func (q *Queries) RunCommentSnapshot(ctx context.Context, arg RunCommentSnapshot
 			&i.SectionStart,
 			&i.SectionEnd,
 			&i.Cancelled,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const runPendingLiveComments = `-- name: RunPendingLiveComments :many
-SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt FROM comment_reservation cr JOIN comment c ON c.workspace_id = cr.workspace_id AND c.id = cr.comment_id
-WHERE cr.workspace_id = $1 AND cr.agent_run_id = $2 AND cr.attempt = $3 AND cr.delivery_channel = $4 AND cr.acknowledged_at IS NULL
-AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id = c.workspace_id AND x.comment_id = c.id)
-ORDER BY c.created_at, c.id
-`
-
-type RunPendingLiveCommentsParams struct {
-	WorkspaceID     uuid.UUID `json:"workspace_id"`
-	AgentRunID      uuid.UUID `json:"agent_run_id"`
-	Attempt         int32     `json:"attempt"`
-	DeliveryChannel string    `json:"delivery_channel"`
-}
-
-func (q *Queries) RunPendingLiveComments(ctx context.Context, arg RunPendingLiveCommentsParams) ([]Comment, error) {
-	rows, err := q.db.Query(ctx, runPendingLiveComments,
-		arg.WorkspaceID,
-		arg.AgentRunID,
-		arg.Attempt,
-		arg.DeliveryChannel,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Comment
-	for rows.Next() {
-		var i Comment
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.CardID,
-			&i.AuthorID,
-			&i.Body,
-			&i.CreatedAt,
-			&i.ReplyRunID,
-			&i.SteerAttempt,
 		); err != nil {
 			return nil, err
 		}

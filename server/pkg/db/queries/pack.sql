@@ -9,26 +9,9 @@ SELECT * FROM field_pack WHERE workspace_id = @workspace_id AND id = @id;
 -- name: SetFieldPackAvatar :one
 UPDATE field_pack SET avatar_url = @avatar_url WHERE workspace_id = @workspace_id AND id = @id RETURNING *;
 
--- name: ListFieldPacks :many
-SELECT p.*, COALESCE((SELECT array_agg(a.approved_by ORDER BY a.approved_at) FROM field_pack_approval a
-  WHERE a.workspace_id = p.workspace_id AND a.pack_id = p.id), '{}')::uuid[] AS approvals
-FROM field_pack p WHERE p.workspace_id = @workspace_id AND p.deleted_at IS NULL ORDER BY p.name, p.created_at;
-
 -- name: ApproveFieldPack :execrows
 INSERT INTO field_pack_approval (workspace_id, pack_id, approved_by)
 VALUES (@workspace_id, @pack_id, @approved_by) ON CONFLICT DO NOTHING;
-
--- name: IsFieldPackApprovedBy :one
-SELECT EXISTS (SELECT 1 FROM field_pack_approval
-  WHERE workspace_id = @workspace_id AND pack_id = @id AND approved_by = @user_id) AS ok;
-
--- name: SetCardPack :exec
-UPDATE card SET pack_id = @pack_id WHERE workspace_id = @workspace_id AND id = @card_id;
-
--- The harnesses the owner has an online runtime for.
--- name: OnlineHarnesses :many
-SELECT DISTINCT harness FROM runtime WHERE workspace_id = @workspace_id AND owner_id = @owner_id AND status = 'online'
-ORDER BY harness;
 
 -- The harnesses the owner has a runtime for, online or not.
 -- name: OwnerHarnesses :many

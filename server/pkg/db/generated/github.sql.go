@@ -120,15 +120,6 @@ func (q *Queries) DeleteGithubUnlink(ctx context.Context, arg DeleteGithubUnlink
 	return err
 }
 
-const deleteWebhookDelivery = `-- name: DeleteWebhookDelivery :exec
-DELETE FROM github_webhook_delivery WHERE id = $1
-`
-
-func (q *Queries) DeleteWebhookDelivery(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, deleteWebhookDelivery, id)
-	return err
-}
-
 const getGithubAutoLink = `-- name: GetGithubAutoLink :one
 SELECT COALESCE((settings->>'github_auto_link')::boolean, true)::boolean AS enabled
 FROM workspace WHERE id = $1

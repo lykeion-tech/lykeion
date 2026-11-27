@@ -73,15 +73,6 @@ vi.mock('../../api/queries', () => ({
     error: ref(null),
   }),
 }));
-vi.mock('../../state/availability', () => ({
-  useAvailabilityChanges: () => ({
-    error: ref(''),
-    allowed: ref(false),
-    catalogueAllowed: ref(false),
-    pending: ref(''),
-    toggle: vi.fn(),
-  }),
-}));
 
 const apps: ReturnType<typeof createTreeApp>[] = [];
 afterEach(() => {

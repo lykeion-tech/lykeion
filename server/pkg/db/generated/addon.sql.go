@@ -35,66 +35,6 @@ func (q *Queries) GetStageAddon(ctx context.Context, arg GetStageAddonParams) (S
 	return i, err
 }
 
-const judgedAgentRuns = `-- name: JudgedAgentRuns :many
-SELECT t.id, t.role, t.addon_hash, t.profile_mode, t.policy_digest, t.harness, t.model FROM agent_run t
-WHERE t.workspace_id = $1 AND t.card_id = $2::uuid AND t.board_column = $3
-  AND (t.round = $4 OR EXISTS (
-    SELECT 1 FROM record r WHERE r.agent_run_id = t.id AND r.superseded_at IS NULL))
-ORDER BY t.created_at
-`
-
-type JudgedAgentRunsParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	BoardColumn string    `json:"board_column"`
-	Round       int32     `json:"round"`
-}
-
-type JudgedAgentRunsRow struct {
-	ID           uuid.UUID `json:"id"`
-	Role         string    `json:"role"`
-	AddonHash    string    `json:"addon_hash"`
-	ProfileMode  string    `json:"profile_mode"`
-	PolicyDigest string    `json:"policy_digest"`
-	Harness      string    `json:"harness"`
-	Model        string    `json:"model"`
-}
-
-// The agent runs a gate judged: every run of its round, and every run whose
-// records are still live in the column (earlier rounds' work it read).
-func (q *Queries) JudgedAgentRuns(ctx context.Context, arg JudgedAgentRunsParams) ([]JudgedAgentRunsRow, error) {
-	rows, err := q.db.Query(ctx, judgedAgentRuns,
-		arg.WorkspaceID,
-		arg.CardID,
-		arg.BoardColumn,
-		arg.Round,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []JudgedAgentRunsRow
-	for rows.Next() {
-		var i JudgedAgentRunsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Role,
-			&i.AddonHash,
-			&i.ProfileMode,
-			&i.PolicyDigest,
-			&i.Harness,
-			&i.Model,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listStageAddons = `-- name: ListStageAddons :many
 SELECT workspace_id, board_column, skill_md, mcp, updated_by, updated_at FROM stage_addon WHERE workspace_id = $1 ORDER BY board_column
 `

@@ -49,10 +49,6 @@ func SkillsDir(harness, dir string) (string, error) {
 // shares a name with one of the account's own skills.
 func PinnedName(name string) string { return "lyk-" + name }
 
-// ReloadSkills starts a resumed session's prompt: its working folder is new,
-// so skills it unpacked earlier are not on disk.
-const ReloadSkills = "This session continues in a new working folder. Skills you loaded earlier are not here: load any you still need again."
-
 // placeSkills wipes the run folder's skills folder and copies the staged
 // skill folders into it, so every prepare leaves exactly the staged skills
 // there. Only folders and regular files are copied.
@@ -106,17 +102,6 @@ func placeSkills(o *ExecOptions, harness string) error {
 	return nil
 }
 
-// RenameSkill sets the name in a skill's SKILL.md frontmatter, which the
-// Agent Skills format requires to match the skill's folder.
-func RenameSkill(folder, from, to string) error {
-	root, err := os.OpenRoot(folder)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	return RenameSkillRoot(root, from, to)
-}
-
 // RenameSkillRoot rewrites frontmatter through the already pinned skill folder.
 func RenameSkillRoot(root *os.Root, from, to string) error {
 	b, err := root.ReadFile("SKILL.md")
@@ -152,21 +137,6 @@ var skillName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,59}$`)
 func ValidSkillName(name string) bool { return skillName.MatchString(name) }
 
 const maxSkillBytes = 64 << 20
-
-// Untar unpacks a skill folder into dst. Only folders and regular files are
-// written, every path must stay inside dst, and the whole is capped, so a
-// tar from a broken or hostile server cannot write anywhere else.
-func Untar(r io.Reader, dst string) error {
-	if err := os.MkdirAll(dst, 0755); err != nil {
-		return err
-	}
-	root, err := os.OpenRoot(dst)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	return UntarRoot(r, root)
-}
 
 // UntarRoot extracts through a pinned directory even if an enclosing chat
 // folder is renamed or replaced while the archive is being read.

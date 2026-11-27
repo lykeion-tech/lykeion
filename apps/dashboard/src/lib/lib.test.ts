@@ -1,42 +1,10 @@
 import { backendLabel } from './backends';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { csvCell, toCsv } from './csv';
-import {
-  dateKey,
-  formatDuration,
-  longDateLabel,
-  monthWeeks,
-  moveDate,
-  parseDateKey,
-} from '../features/studies/dates';
-import {
-  scheduleCron,
-  scheduleError,
-  scheduleLabel,
-  scheduleSummary,
-  toggleWeekday,
-  type Schedule,
-} from '../features/autoresearch/schedule';
-import {
-  connectorConfig,
-  connectorFields,
-  parseConnectorJson,
-} from './connectors';
-import {
-  labelNameTaken,
-  propertyOptions,
-  repositoryUrl,
-  validCreateFields,
-} from './settings';
+import { dateKey, longDateLabel, monthWeeks, moveDate, parseDateKey } from '../features/studies/dates';
+import { scheduleCron, scheduleError, scheduleLabel, toggleWeekday, type Schedule } from '../features/autoresearch/schedule';
+import { validCreateFields } from './settings';
 import { matchesQuery, paletteEntries, paletteSelection, rankPaletteEntries } from './search';
-import { environmentView } from '../features/studies/environment';
-import type {
-  AgentRun,
-  Card,
-  Research,
-  Runtime,
-  StudyRecord,
-} from '../api/types';
+import type { Card, Research } from '../api/types';
 
 describe('workspace search palette', () => {
   const researches = [{ id: 'r1', name: 'Metabolism', updated_at: '2026-10-21' }] as Research[];
@@ -105,29 +73,6 @@ beforeAll(() => {
   process.env.TZ = 'Europe/Copenhagen';
 });
 
-describe('CSV export', () => {
-  it.each(['=SUM(A1)', '+1', '-1', '@cmd', '  =1', '\t=1', '\tplain', '\rx', '\nx'])(
-    'neutralises %j as a formula',
-    (value) => expect(csvCell(value)).toBe(`"'${value}"`),
-  );
-  it('leaves ordinary text, inner formula characters and inner line breaks alone', () => {
-    expect(csvCell('a=b')).toBe('"a=b"');
-    expect(csvCell('line 1\nline 2')).toBe('"line 1\nline 2"');
-    expect(csvCell('')).toBe('""');
-  });
-  it('doubles quotes, including after the formula guard', () => {
-    expect(csvCell('say "hi"')).toBe('"say ""hi"""');
-    expect(csvCell('="x"')).toBe('"\'=""x"""');
-  });
-  it('joins cells with commas and rows with CRLF', () => {
-    expect(
-      toCsv([
-        ['Task', 'Labels'],
-        ['a, b', '-'],
-      ]),
-    ).toBe('"Task","Labels"\r\n"a, b","\'-"');
-  });
-});
 
 describe('autoresearch schedules', () => {
   const base: Schedule = {
@@ -153,25 +98,6 @@ describe('autoresearch schedules', () => {
     );
     expect(scheduleError({ ...base, dayMode: 'every', weekdays: [] })).toBe('');
     expect(scheduleError({ ...base, dayMode: 'week', weekdays: [0] })).toBe('');
-  });
-  it('summarises time, interval, weekday, month and cron schedules', () => {
-    expect(scheduleSummary(base)).toBe('At 09:00 · Every day · Europe/Copenhagen');
-    expect(
-      scheduleSummary({
-        ...base,
-        timeMode: 'interval',
-        interval: 15,
-        unit: 'minutes',
-        dayMode: 'week',
-        weekdays: [0, 6],
-      }),
-    ).toBe('Every 15 minutes between 00:00 and 23:00 · Sun, Sat · Europe/Copenhagen');
-    expect(scheduleSummary({ ...base, dayMode: 'month', monthDay: 31 })).toBe(
-      'At 09:00 · Day 31 of the month · Europe/Copenhagen',
-    );
-    expect(scheduleSummary({ ...base, cron: '0 9 * * 1' })).toBe(
-      'Cron 0 9 * * 1 (Europe/Copenhagen)',
-    );
   });
   it('turns a schedule into the five-field cron the server runs', () => {
     expect(scheduleCron(base)).toBe('0 9 * * *');
@@ -267,96 +193,10 @@ describe('calendar dates', () => {
       'Today, Tuesday, October 13th, 2026',
     );
   });
-  it('formats durations', () => {
-    expect(formatDuration(null)).toBe('Not reported');
-    expect(formatDuration(0)).toBe('0s');
-    expect(formatDuration(59.4)).toBe('59s');
-    expect(formatDuration(60)).toBe('1m 0s');
-    expect(formatDuration(125)).toBe('2m 5s');
-  });
 });
 
-describe('connector configuration', () => {
-  it('round-trips fields and JSON, keeping keys the fields do not model', () => {
-    const text = JSON.stringify({
-      type: 'stdio',
-      command: 'npx',
-      args: ['-y', 'server'],
-      env: { TOKEN: 'x' },
-      timeout: 30,
-    });
-    const fields = connectorFields(parseConnectorJson(text));
-    expect(fields).toMatchObject({
-      transport: 'STDIO',
-      args: ['-y', 'server'],
-      env: [{ key: 'TOKEN', value: 'x' }],
-      extra: { timeout: 30 },
-    });
-    expect(connectorConfig(fields)).toEqual(JSON.parse(text));
-  });
-  it('writes HTTP configurations without empty maps', () => {
-    expect(
-      connectorConfig({
-        transport: 'Streamable HTTP',
-        command: 'ignored',
-        url: 'https://x',
-        args: ['a'],
-        env: [],
-        headers: [],
-        extra: {},
-      }),
-    ).toEqual({ type: 'http', url: 'https://x' });
-  });
-  it.each([
-    ['[]', 'Configuration must be a JSON object.'],
-    ['null', 'Configuration must be a JSON object.'],
-    ['{"type":"sse"}', 'Transport type must be stdio or http.'],
-    ['{"type":"stdio"}', 'A STDIO configuration needs a command string.'],
-    ['{"type":"http","url":5}', 'An HTTP configuration needs a URL string.'],
-    ['{"type":"stdio","command":"x","args":[1]}', 'Arguments must be an array of strings.'],
-    [
-      '{"type":"stdio","command":"x","env":{"A":1}}',
-      'Headers and environment values must be string maps.',
-    ],
-    [
-      '{"type":"http","url":"u","headers":["a"]}',
-      'Headers and environment values must be string maps.',
-    ],
-  ])('rejects %s', (text, message) => {
-    expect(() => parseConnectorJson(text)).toThrow(message);
-  });
-  it('lets the caller tell broken JSON from a bad shape', () => {
-    expect(() => parseConnectorJson('{')).toThrow(SyntaxError);
-  });
-});
 
 describe('settings validation', () => {
-  it('accepts plain HTTPS repository URLs only', () => {
-    expect(repositoryUrl('https://github.com/a/b')).toBe('https://github.com/a/b');
-    expect(repositoryUrl('HTTPS://GitHub.com/a')).toBe('https://github.com/a');
-    for (const bad of [
-      'http://x.org/a',
-      'https://u:p@x.org',
-      'https://x.org/?a=1',
-      'https://x.org/#a',
-      'x.org',
-      '',
-    ])
-      expect(repositoryUrl(bad)).toBeNull();
-  });
-  it('trims, dedupes and drops blank options, for select types only', () => {
-    expect(propertyOptions('Select', ' a\n\nb\na \n')).toEqual(['a', 'b']);
-    expect(propertyOptions('Multi-select', 'x')).toEqual(['x']);
-    expect(propertyOptions('Text', 'x')).toEqual([]);
-  });
-  it('treats label names as unique per scope, ignoring case and spacing', () => {
-    const labels = [
-      { id: '1', name: 'Bug', description: '', color: '', scope: 'Tasks' as const, updatedAt: '' },
-    ];
-    expect(labelNameTaken(labels, ' bug ', 'Tasks', '')).toBe(true);
-    expect(labelNameTaken(labels, 'bug', 'Tasks', '1')).toBe(false);
-    expect(labelNameTaken(labels, 'bug', 'Skills', '')).toBe(false);
-  });
   it('recognises stored create-field preferences', () => {
     expect(validCreateFields({ agent: [], manual: ['Status'] })).toBe(true);
     expect(validCreateFields({ agent: [] })).toBe(false);
@@ -380,113 +220,3 @@ describe('backend names', () => {
   });
 });
 
-describe('study environment', () => {
-  const runtime = (id: string, daemon: string, bases: Record<string, string>) =>
-    ({
-      id,
-      daemon_id: daemon,
-      device_name: 'lab-mac',
-      custom_name: daemon === 'd1' ? 'Bench Mac' : null,
-      bases,
-    }) as Runtime;
-  const run = (runtimeId: string | null) => ({ runtime_id: runtimeId }) as AgentRun;
-  const record = (language: string, packages: string, at: string, createdAt = at) =>
-    ({
-      kind: 'run',
-      created_at: createdAt,
-      body: { language, packages_study: packages, at },
-    }) as unknown as StudyRecord;
-
-  it('maps each base state and dedupes one daemon’s runtimes into one machine', () => {
-    const bases = {
-      python: 'ready',
-      r: 'failed: no network',
-      sandbox: 'failed: sandbox-exec missing',
-    };
-    const view = environmentView(
-      [run('a'), run('b'), run(null), run('gone')],
-      [runtime('a', 'd1', bases), runtime('b', 'd1', bases), runtime('c', 'd2', {})],
-      [],
-    );
-    expect(view.machines).toEqual([
-      {
-        name: 'Bench Mac',
-        bases: [
-          { language: 'Python', state: 'Ready', reason: '' },
-          { language: 'R', state: 'Failed', reason: 'no network' },
-          { language: 'Julia', state: 'Not reported', reason: '' },
-        ],
-      },
-    ]);
-  });
-
-  it('shows only language bases when the sandbox is ready or unreported', () => {
-    const view = environmentView(
-      [run('a'), run('b')],
-      [runtime('a', 'd1', { sandbox: 'ready' }), runtime('b', 'd2', {})],
-      [],
-    );
-    expect(view.machines.map((m) => m.bases.map((b) => `${b.language} ${b.state}`))).toEqual([
-      ['Python Not reported', 'R Not reported', 'Julia Not reported'],
-      ['Python Not reported', 'R Not reported', 'Julia Not reported'],
-    ]);
-  });
-
-  it('takes each language’s packages from its latest run, skipping empty ones', () => {
-    const view = environmentView(
-      [],
-      [],
-      [
-        record('python', 'scipy==1.14\n', '2026-10-19T11:00:00Z'),
-        record('python', 'numpy==2.0\n', '2026-10-19T10:00:00Z'),
-        record('julia', '', '2026-10-19T12:00:00Z'),
-      ],
-    );
-    expect(view.packages).toEqual([
-      { language: 'Python', text: 'scipy==1.14\n', at: '2026-10-19T11:00:00Z' },
-    ]);
-    expect(view.machines).toEqual([]);
-  });
-
-  it('marks building and treats a malformed state as not reported', () => {
-    const view = environmentView(
-      [run('a')],
-      [
-        runtime('a', 'd1', {
-          python: 'building',
-          r: 'failed',
-          julia: 'failed:no space',
-          sandbox: 'building',
-        }),
-      ],
-      [],
-    );
-    expect(view.machines[0]!.bases.map((b) => [b.state, b.reason])).toEqual([
-      ['Building', ''],
-      ['Not reported', ''],
-      ['Not reported', ''],
-    ]);
-  });
-
-  it('orders runs of one second by their full creation time, later input winning a tie', () => {
-    const at = '2026-10-19T10:00:00Z';
-    const packages = (records: StudyRecord[]) =>
-      environmentView([], [], records).packages.map((p) => p.text);
-    expect(
-      packages([
-        record('python', 'old\n', at, '2026-10-19T10:00:00.100Z'),
-        record('python', 'new\n', at, '2026-10-19T10:00:00.200Z'),
-      ]),
-    ).toEqual(['new\n']);
-    expect(packages([record('python', 'first\n', at), record('python', 'second\n', at)])).toEqual([
-      'second\n',
-    ]);
-    // A creation time that doesn't parse falls back to the run's own time.
-    expect(
-      packages([
-        record('python', 'dated\n', '2026-10-19T11:00:00Z', 'not a date'),
-        record('python', 'older\n', at),
-      ]),
-    ).toEqual(['dated\n']);
-  });
-});

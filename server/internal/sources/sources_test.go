@@ -147,7 +147,7 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	{
-		f, ok := v.ByKey("fetch", "europepmc:PMC1")
+		f, ok := byKey(v, "fetch", "europepmc:PMC1")
 		txt, err := v.Text(f)
 		if err != nil {
 			t.Fatal(err)
@@ -157,11 +157,11 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		}](f).FullText {
 			t.Errorf("fetch not recorded: %+v %q", f, txt)
 		}
-		if ax, ok := v.ByKey("fetch", "arxiv:1706.03762"); !ok || records.Body[struct{ Database string }](ax).Database != "arxiv" {
+		if ax, ok := byKey(v, "fetch", "arxiv:1706.03762"); !ok || records.Body[struct{ Database string }](ax).Database != "arxiv" {
 			t.Errorf("arXiv fetch not recorded: %+v", ax)
 		}
 		for alias, provider := range map[string]string{"doi:10.1/b": "openalex", "pmid:1": "europepmc"} {
-			got, ok := v.ByKey("fetch", alias)
+			got, ok := byKey(v, "fetch", alias)
 			body := records.Body[struct {
 				Database string
 				FullText bool `json:"full_text"`
@@ -170,13 +170,13 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 				t.Errorf("%s did not record its %s provenance: %+v", alias, provider, got)
 			}
 		}
-		if w2, _ := v.ByKey("fetch", "openalex:W2"); !records.Body[struct{ Retracted bool }](w2).Retracted {
+		if w2, _ := byKey(v, "fetch", "openalex:W2"); !records.Body[struct{ Retracted bool }](w2).Retracted {
 			t.Error("retraction not recorded")
 		}
 		if s, _ := v.Latest("search"); records.Body[struct{ Database, Query string }](s).Database != "arxiv" {
 			t.Errorf("search not recorded: %+v", s)
 		}
-		d, ok := v.ByKey("open_dataset", "GSE1")
+		d, ok := byKey(v, "open_dataset", "GSE1")
 		if !ok || d.BlobKey == "" {
 			t.Fatal("open_dataset not recorded")
 		}
@@ -189,9 +189,9 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		}
 	}
 	if err := st.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
-		f, _ := v.ByKey("fetch", "europepmc:PMC1")
+		f, _ := byKey(v, "fetch", "europepmc:PMC1")
 		// The role blob route (lyk blob) serves only blobs with a blob.created event.
-		for _, key := range []string{f.BlobKey, func() string { d, _ := v.ByKey("open_dataset", "GSE1"); return d.BlobKey }()} {
+		for _, key := range []string{f.BlobKey, func() string { d, _ := byKey(v, "open_dataset", "GSE1"); return d.BlobKey }()} {
 			if ok, err := tx.Q.RoleBlobExists(ctx, db.RoleBlobExistsParams{WorkspaceID: ws, CardID: &card, BlobKey: key}); err != nil || !ok {
 				t.Errorf("blob %s is not readable through the role blob route: %v", key, err)
 			}
@@ -497,7 +497,7 @@ func TestHostedGEOMetadataIsRecorded(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				openedRecord, ok := v.ByKey("open_dataset", "GSE1")
+				openedRecord, ok := byKey(v, "open_dataset", "GSE1")
 				if !ok {
 					t.Fatal("missing open record")
 				}
@@ -519,7 +519,7 @@ func TestHostedGEOMetadataIsRecorded(t *testing.T) {
 				if fmt.Sprint(savedValue) != fmt.Sprint(refs) {
 					t.Errorf("persisted metadata references %s, returned %s", saved, returned)
 				}
-				f, ok := v.ByKey("fetch", source)
+				f, ok := byKey(v, "fetch", source)
 				if !ok {
 					t.Fatal("no fetch")
 				}
@@ -685,4 +685,14 @@ func TestHostedGEOMetadataCardlessLogging(t *testing.T) {
 	if err != nil || len(entries) != 0 {
 		t.Fatal(entries, err)
 	}
+}
+
+func byKey(v *records.View, kind, key string) (db.Record, bool) {
+	ks := v.Kind(kind)
+	for i := len(ks) - 1; i >= 0; i-- {
+		if ks[i].Key == key {
+			return ks[i], true
+		}
+	}
+	return db.Record{}, false
 }
