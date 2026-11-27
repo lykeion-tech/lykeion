@@ -228,6 +228,13 @@ func hypothesisLine(b review.HypothesisBody, ids []string) string {
 		if p.Low != nil && p.High != nil {
 			fmt.Fprintf(&s, " Predicts %s to %s (%s).", strconv.FormatFloat(*p.Low, 'g', -1, 64), strconv.FormatFloat(*p.High, 'g', -1, 64), p.Uncertainty)
 		}
+	case "estimate":
+		if b.Measure != nil {
+			fmt.Fprintf(&s, " Estimates %s by %s.", oneLine(b.Measure.Name), oneLine(b.Method))
+		}
+		if r := b.Reported; r != nil {
+			fmt.Fprintf(&s, " Published: %s (%s).", strconv.FormatFloat(r.Value, 'g', -1, 64), r.Source)
+		}
 	}
 	if b.Measure != nil && b.Measure.Valid() {
 		fmt.Fprintf(&s, " Measure %s: %s (%s).", b.Measure.ID, oneLine(b.Measure.Name), oneLine(b.Measure.Unit))

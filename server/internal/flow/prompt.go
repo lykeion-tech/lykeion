@@ -158,11 +158,13 @@ func itemsPrompt(column string) string {
 	case board.Hypotheses:
 		return "- `hypotheses`: each hypothesis, with\n" +
 			"  - `text`: the hypothesis;\n" +
-			"  - `prediction_shape` is `direction`, `outcomes` or `range`; then fill that shape's fields: for `direction`, `direction` (`increase`, `decrease` or `no_change`); for `outcomes`, the named `outcomes` and the `chosen` one; " +
-			"for `range`, `low`, `high` and `uncertainty` (such as a 90% interval). Leave the other shapes' fields null or empty;\n" +
+			"  - `prediction_shape` is `direction`, `outcomes`, `range` or `estimate`; then fill that shape's fields: for `direction`, `direction` (`increase`, `decrease` or `no_change`); for `outcomes`, the named `outcomes` and the `chosen` one; " +
+			"for `range`, `low`, `high` and `uncertainty` (such as a 90% interval). Leave the other shapes' fields null or empty. " +
+			"Use `estimate` only when the question asks for a quantity: give `measure` and `method` (how it is computed, precisely enough that another analyst gets the same number), and `reported` when a source already gives the value. " +
+			"When the question asks whether something holds, use a prediction. Never invent a predicted range for a measurement question;\n" +
 			"  - `measure`: for a numeric prediction, give a short lowercase `id`, human-readable `name` and exact `unit` (such as fraction or percentage points); otherwise null. Reuse an id only for the same measure and unit;\n" +
 			"  - `comparison`: for outcomes already defined numerically, give an explicit `threshold` in the measure's unit or the planned `control` value name, with the other set to null. Map `less`, `equal` and `greater` to the registered outcomes. Leave `comparison` null when there is no explicit numeric definition;\n" +
-			"  - `control`: the baseline it is compared with, or `no_control`: why there is none (give exactly one);\n" +
+			"  - `control`: the baseline it is compared with, or `no_control`: why there is none (give exactly one; an estimate needs neither);\n" +
 			"  - `cites`: at least one source the hypothesis rests on. Use the DOI, arXiv or PubMed ids or accessions of the study's Grounding papers and datasets or of sources you looked up through Lykeion's sources in this study. " +
 			"For study attachments, read the file from `./attachments` and cite its original filename. The server already records study attachments as sources; no lookup tool or separate call is needed to cite them.\n" +
 			replies +
@@ -182,6 +184,7 @@ func itemsPrompt(column string) string {
 			"`control` (the name of the recorded value holding the control group's raw value, when `measurement` is the treated group's raw value; null when `measurement` is already the effect), " +
 			"`test` (the statistical test exactly as a recorded script run printed it: `kind` is t, F, chi2, r or z, with `statistic`, `df1`, `df2` (null when the test has none), `p` and `p_bound` (=, < or >); null when there is none. Lykeion looks for its statistic and p in the rerun's output, so a test no run printed makes the hypothesis invalid) " +
 			"and `observed` (for a hypothesis that names outcomes, the name of the recorded value whose text is the outcome seen, one of the named outcomes; null if no outcome was recorded). " +
+			"For an estimate, name only `measurement`, the bound value; `control`, `observed` and `test` are null. " +
 			"For a frozen numeric comparison, name the bound measurement and exact frozen control if specified. Leave control null for a fixed threshold. The server derives the category and checks any named observed outcome against it. " +
 			"Lykeion reruns the study's scripts in a fresh environment and sets each hypothesis's status from the recorded measurements and observed outcomes; you set no status. Hand in the assessments even when a replay failed, and use the official automatic replay record in the assignment to explain what happened.\n" +
 			"- `verdicts`, otherwise: each claim you checked, with `claim`, `verdict` (`supported`, `refuted` or `not_enough_info`), " +
