@@ -382,3 +382,24 @@ func TestConnectorRecoveryGuidance(t *testing.T) {
 		}
 	}
 }
+
+// A planning column cannot run code. When the researcher's question asks for
+// an analysis, its runs must defer that analysis to Experimentation rather
+// than hand in could_not_do and block the study (seen live on BixBench tasks).
+func TestPlanningColumnsDeferTheAnalysisInsteadOfGivingUp(t *testing.T) {
+	for _, col := range []string{"grounding", "hypotheses"} {
+		for _, role := range []string{"leader", "agent", "Curie"} {
+			p := Protocol(role, col, "", nil)
+			for _, want := range []string{"runs in Experimentation", "never a reason for `could_not_do`"} {
+				if !strings.Contains(p, want) {
+					t.Errorf("%s on %s is not told %q", role, col, want)
+				}
+			}
+		}
+	}
+	for _, col := range []string{"experimentation", "validation"} {
+		if p := Protocol("leader", col, "", nil); strings.Contains(p, "never a reason for `could_not_do`") {
+			t.Errorf("%s is told code unavailability is never a reason to stop", col)
+		}
+	}
+}

@@ -129,7 +129,12 @@ func TestConvertProblems(t *testing.T) {
 	}
 	for _, c := range cases {
 		h := parsed(t, c.k, c.raw)
-		recs, probs := Convert(c.k, true, h, studyEvidence(), prev)
+		// A review sends back items of its own column: only the replies case answers one.
+		p := Review{}
+		if c.name == "replies" {
+			p = prev
+		}
+		recs, probs := Convert(c.k, true, h, studyEvidence(), p)
 		if !slices.Equal(probs, c.want) {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, probs, c.want)
 		}
@@ -139,13 +144,13 @@ func TestConvertProblems(t *testing.T) {
 	}
 	// A review rule run on a converted body: a paper id of no known form.
 	h := parsed(t, Grounding, `{"status":"done","answer":"a","reason":null,"replies":[],"papers":[{"id":"hits:","why":"w"}],"datasets":[],"no_qualifying":null}`)
-	if _, probs := Convert(Grounding, true, h, studyEvidence(), prev); !slices.Equal(probs, []string{"paper 1: id must be arxiv:…, doi:10.… or pmid:…"}) {
+	if _, probs := Convert(Grounding, true, h, studyEvidence(), Review{}); !slices.Equal(probs, []string{"paper 1: id must be arxiv:…, doi:10.… or pmid:…"}) {
 		t.Errorf("item rule: %q", probs)
 	}
 }
 
 func TestConvertReplies(t *testing.T) {
-	prev := Review{Failed: map[string]string{"doi:10.1001/a": "r4", "a stated effect": "r6"}, Missed: []string{"doi:10.1001/b"}}
+	prev := Review{Failed: map[string]string{"doi:10.1001/a": "r4"}, Missed: []string{"doi:10.1001/b"}}
 	h := parsed(t, Grounding, `{"status":"done","answer":"a","reason":null,"datasets":[],"no_qualifying":null,
 		"papers":[{"id":"10.1001/b","why":"w"}],"replies":[
 		{"item":"https://doi.org/10.1001/A","action":"withdrawn","reason":"off topic"},
@@ -166,7 +171,7 @@ func TestConvertReplies(t *testing.T) {
 	// A hypothesis sent back is named by its text, in any spacing and case.
 	h = parsed(t, Hypotheses, `{"status":"done","answer":"a","reason":null,"hypotheses":[],"replies":[
 		{"item":"A  stated\nEffect","action":"withdrawn","reason":"weak"}]}`)
-	recs, probs = Convert(Hypotheses, true, h, studyEvidence(), prev)
+	recs, probs = Convert(Hypotheses, true, h, studyEvidence(), Review{Failed: map[string]string{"a stated effect": "r6"}})
 	if len(probs) > 0 || len(recs) != 2 || body(t, recs[0])["item"] != "r6" {
 		t.Fatalf("hypothesis withdrawn: %v %v", recs, probs)
 	}
@@ -564,5 +569,44 @@ func TestNestedEvidenceIsRejectedWithCorrectionWithoutExtraction(t *testing.T) {
 	h.Papers[0].ID = "doi:10.1001/a"
 	if _, probs = Convert(Grounding, true, h, studyEvidence(), Review{}); len(probs) != 0 {
 		t.Fatal(probs)
+	}
+}
+
+// Review fails a sent-back item left unanswered every time (seen live: a redo
+// added a renamed value and left the failing one standing), so a redo must
+// answer each one: hand it in again under one of its names, or withdraw it.
+func TestARedoMustAnswerEverySentBackItem(t *testing.T) {
+	prev := Review{Failed: map[string]string{"circularity": "r20", "0.076: circularity": "r20", "area": "r21"}}
+	value := func(name string) Value { return Value{Name: name, Value: "0.076", File: "fit.py"} }
+	for _, tc := range []struct {
+		name    string
+		h       HandIn
+		missing []string
+	}{
+		{"renamed and unanswered", HandIn{Values: []Value{value("r20 0.076"), value("area")}}, []string{"circularity"}},
+		{"nothing answered", HandIn{Values: []Value{value("other")}}, []string{"area", "circularity"}},
+		{"handed in again", HandIn{Values: []Value{value("Circularity"), value("Area")}}, nil},
+		{"under its other label", HandIn{Values: []Value{value("0.076: circularity"), value("area")}}, nil},
+		{"withdrawn", HandIn{Values: []Value{value("area")}, Replies: []Reply{{Item: "circularity", Action: "withdrawn", Reason: "wrong unit"}}}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.h.Status, tc.h.Answer = "done", "redo"
+			_, probs := Convert(Experimentation, true, tc.h, studyEvidence(), prev)
+			var got []string
+			for _, p := range probs {
+				if item, ok := strings.CutPrefix(p, "the last review sent back "); ok {
+					got = append(got, strings.SplitN(item, ":", 2)[0])
+				} else {
+					t.Errorf("unexpected problem %q", p)
+				}
+			}
+			if !slices.Equal(got, tc.missing) {
+				t.Errorf("unanswered %q, want %q", got, tc.missing)
+			}
+		})
+	}
+	// A first attempt has nothing sent back.
+	if _, probs := Convert(Experimentation, true, HandIn{Status: "done", Answer: "a", Values: []Value{value("x")}}, studyEvidence(), Review{}); len(probs) != 0 {
+		t.Errorf("first attempt: %q", probs)
 	}
 }

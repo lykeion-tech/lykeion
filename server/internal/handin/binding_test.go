@@ -47,11 +47,10 @@ func TestExperimentationBindingRoundTrip(t *testing.T) {
 	const raw = `{"status":"done","answer":"Measured.", "outputs":["outputs/metrics.json"],"values":[
 		{"name":"Primary","value":"0.42","file":"outputs/metrics.json","field":"/summary/a~1b/~0c/0","measure":"accuracy","run":"run:x7"},
 		{"name":"Root","value":"9","file":"outputs/metrics.json","field":"","measure":"count"},
-		{"name":"Partial","value":"0.42","file":"outputs/metrics.json","measure":"accuracy"},
 		{"name":"Legacy","value":"4","file":"fit.txt","measure":null,"field":null}]}`
 	h := parsed(t, Experimentation, raw)
 	recs, probs := Convert(Experimentation, true, h, studyEvidence(), Review{})
-	if len(probs) != 0 || !slices.Equal(kinds(recs), []string{"outputs", "value", "value", "value", "value", "summary"}) {
+	if len(probs) != 0 || !slices.Equal(kinds(recs), []string{"outputs", "value", "value", "value", "summary"}) {
 		t.Fatalf("records %v, problems %v", kinds(recs), probs)
 	}
 	first := body(t, recs[1])
@@ -64,16 +63,20 @@ func TestExperimentationBindingRoundTrip(t *testing.T) {
 	if root["field"] != "" || len(root["cites"].([]any)) != 0 {
 		t.Fatalf("root pointer or explicit run lost: %v", root)
 	}
-	for _, rec := range recs[3:5] {
-		if _, present := body(t, rec)["field"]; present {
-			t.Fatalf("absent pointer acquired a value: %v", rec)
-		}
+	if _, present := body(t, recs[3])["field"]; present {
+		t.Fatalf("absent pointer acquired a value: %v", recs[3])
 	}
 	for _, tc := range []struct{ old, invalid, want string }{
 		{`"/summary/a~1b/~0c/0"`, `"summary"`, "field must be a JSON Pointer"},
 		{`"/summary/a~1b/~0c/0"`, `"/metric~3"`, "field must be a JSON Pointer"},
 		{`"/summary/a~1b/~0c/0"`, `"/metric~"`, "field must be a JSON Pointer"},
 		{`"measure":"accuracy"`, `"measure":"Accuracy"`, "measure id"},
+		// Review fails a half binding every time, so it is refused at hand-in,
+		// where the agent can still fix it in the same attempt.
+		{`,"measure":"accuracy"`, ``, "field and measure go together"},
+		{`"field":"/summary/a~1b/~0c/0",`, ``, "field and measure go together"},
+		{`"value":"0.42"`, `"value":"steel"`, "bound value must be a number"},
+		{`"value":"0.42"`, `"value":"NaN"`, "bound value must be a number"},
 	} {
 		_, probs := Parse(Experimentation, []byte(strings.Replace(raw, tc.old, tc.invalid, 1)))
 		if !strings.Contains(strings.Join(probs, "\n"), tc.want) {
