@@ -358,6 +358,8 @@ For a deterministic check, specify a named outcome or numeric range in Hypothese
 
 For outcome labels defined by a numeric comparison, declare a threshold in the measure's unit or name the planned control value, and map less, equal and greater to the registered labels. Validation derives the outcome from the replayed bound measurement and this frozen comparison. A reported label that disagrees makes the assessment invalid. A study with a frozen comparison waits before Experimentation and replay until a daemon that supports output attestation can claim the work. Upgrade the daemon if the study is waiting. For named outcomes without a numeric comparison, Validation uses the reproduced label and value binding remains optional.
 
+When the question asks for a quantity rather than whether something holds, hand in an estimate instead of a prediction: the measure, and the method that computes it. Review asks whether the question calls for a measurement, whether the evidence justifies the method and whether the method is specific enough to reproduce. Validation reports the replayed value and any value a source already published, and a replication is a valid study.
+
 For a numeric hypothesis, declare a measure with an ID, a name and a unit. Save the number in a JSON output from the experiment script, then cite that script execution and the exact JSON field in the hand-in. The server checks the binding without TypeSafe. Review labels values without a binding as unbound and still checks their existing execution evidence.
 
 ## Check evidence before continuing
