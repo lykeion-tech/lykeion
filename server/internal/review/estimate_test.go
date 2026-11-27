@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -127,5 +128,71 @@ func TestEstimateLowFitsFails(t *testing.T) {
 	}
 	if r.Items[0].Status != Fail {
 		t.Fatalf("a test question handed in as an estimate passed: %+v", r.Items[0])
+	}
+}
+
+func estimateBody() HypothesisBody {
+	return HypothesisBody{Text: "e", Prediction: Prediction{Shape: "estimate"},
+		Measure: &Measure{ID: "prob_pr_65", Name: "PR probability at 65", Unit: "fraction"}, Method: "logistic regression on age"}
+}
+
+func boundGood(v float64, measure string) Measured {
+	m := good(v)
+	m.Bound, m.BoundValue, m.MeasureID = true, strconv.FormatFloat(v, 'f', -1, 64), measure
+	return m
+}
+
+func TestStatusesEstimate(t *testing.T) {
+	h := estimateBody()
+	r := run(t, h, &Assessment{Hypothesis: "e", Measurement: "m"}, map[string]Measured{"m": boundGood(0.395, "prob_pr_65")})
+	if r.Status != Supported || r.Reasons[0] != "measured 0.395 fraction by logistic regression on age; reproduced on replay" {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestStatusesEstimateUnboundOrNotReproduced(t *testing.T) {
+	h := estimateBody()
+	other := boundGood(0.395, "recall")
+	stale := boundGood(0.395, "prob_pr_65")
+	stale.Reproduced, stale.RerunNote = false, "differs"
+	gone := boundGood(0.395, "prob_pr_65")
+	gone.Reproduced, gone.ReplayUnavailable, gone.RerunNote = false, true, "artifact not kept"
+	for name, tc := range map[string]struct {
+		v      Measured
+		want   string
+		reason string
+	}{
+		"unbound":         {good(0.395), Invalid, "not bound to the estimate's measure"},
+		"other measure":   {other, Invalid, "different hypothesis measure"},
+		"not reproduced":  {stale, Invalid, "not reproduced"},
+		"replay unavaila": {gone, Inconclusive, "could not be checked"},
+	} {
+		r := run(t, h, &Assessment{Hypothesis: "e", Measurement: "m"}, map[string]Measured{"m": tc.v})
+		if r.Status != tc.want || !strings.Contains(strings.Join(r.Reasons, "; "), tc.reason) {
+			t.Errorf("%s: %+v", name, r)
+		}
+	}
+}
+
+func TestStatusesEstimateNeverCapped(t *testing.T) {
+	h := estimateBody()
+	h.Control = Control{None: "not applicable"}
+	r := run(t, h, &Assessment{Hypothesis: "e", Measurement: "m"}, map[string]Measured{"m": boundGood(0.395, "prob_pr_65")})
+	if r.Status != Supported || strings.Contains(strings.Join(r.Reasons, " "), "no control") {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestStatusesEstimatePublishedValue(t *testing.T) {
+	for published, want := range map[float64]string{
+		0.39:  "published value 0.39 (doi:10.1/a) differs by 1.3%",
+		0.395: "published value 0.395 (doi:10.1/a) matches",
+	} {
+		h := estimateBody()
+		h.Reported = &ReportedValue{Value: published, Source: "doi:10.1/a", Key: "p1"}
+		r := run(t, h, &Assessment{Hypothesis: "e", Measurement: "m"}, map[string]Measured{"m": boundGood(0.395, "prob_pr_65")})
+		if r.Status != Supported || len(r.Reasons) < 2 || r.Reasons[1] != want {
+			t.Errorf("%v: %+v", published, r)
+		}
 	}
 }
