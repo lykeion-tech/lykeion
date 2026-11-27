@@ -381,9 +381,11 @@ test('To-do shares proposals in the right boards and preserves edits across revi
 
     await page.goto('/#/studies');
     await expect(todo.getByText('Colleague proposal')).toBeVisible();
-    await expect(todo.getByRole('button', { name: 'Actions for Colleague proposal' })).toHaveCount(
-      0,
-    );
+    await todo.getByRole('button', { name: 'Actions for Colleague proposal' }).click();
+    const colleagueActions = page.getByRole('menu', { name: 'To-do actions' });
+    await expect(colleagueActions.getByRole('menuitem', { name: 'Add to project' })).toBeVisible();
+    await expect(colleagueActions.getByRole('menuitem', { name: 'Delete', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     await todo.getByText('Colleague proposal').click();
     await expect(dialog.getByLabel('Description')).toBeDisabled();
     await expect(dialog.getByRole('button', { name: /^Stage:/ })).toBeDisabled();

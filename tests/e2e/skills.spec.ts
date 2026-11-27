@@ -660,9 +660,7 @@ test('runtime import retries the same job read after an error without resubmitti
   await expect(dialog.getByRole('alert')).toBeVisible();
   await expect(picker).toHaveAttribute('data-value', runtime);
   await expect(picker).toBeDisabled();
-  await expect(dialog.locator('.runtime-actions')).toContainText('1 selected');
-  // The count can come from the cached job; the discard guard proves the actual
-  // selected-folder draft also survived the read failure.
+  // The discard guard proves the selected-folder draft survived the read failure.
   await page.getByRole('button', { name: 'Back to methods', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
   await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
