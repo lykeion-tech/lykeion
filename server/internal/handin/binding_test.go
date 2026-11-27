@@ -163,7 +163,7 @@ func TestOutcomeComparisonRoundTrip(t *testing.T) {
 }
 
 func TestEstimateHandInRoundTrip(t *testing.T) {
-	const est = `{"text":"PR probability at 65","prediction_shape":"estimate","measure":{"id":"prob_pr_65","name":"PR probability at 65","unit":"fraction"},"method":"logistic regression of PR on age, all patients","reported":{"value":0.39,"cite":"doi:10.1001/a"},"control":null,"no_control":null,"cites":["doi:10.1001/a"]}`
+	const est = `{"text":"PR probability at 65","prediction_shape":"estimate","measure":{"id":"prob_pr_65","name":"PR probability at 65","unit":"fraction"},"method":"logistic regression of PR on age, all patients","reported":{"value":0.39,"cite":"10.1001/b"},"control":null,"no_control":null,"cites":["doi:10.1001/a"]}`
 	wrap := func(h string) string {
 		return `{"status":"done","answer":"A measurement plan.","hypotheses":[` + h + `]}`
 	}
@@ -175,10 +175,14 @@ func TestEstimateHandInRoundTrip(t *testing.T) {
 	b := body(t, recs[0])
 	rep, _ := b["reported"].(map[string]any)
 	if b["prediction"].(map[string]any)["shape"] != "estimate" || b["method"] != "logistic regression of PR on age, all patients" ||
-		rep["key"] != "r2" || rep["source"] != "doi:10.1001/a" || rep["value"] != 0.39 {
+		rep["key"] != "call:c1" || rep["source"] != "doi:10.1001/b" || rep["value"] != 0.39 {
 		t.Fatalf("stored estimate = %v", b)
 	}
-	_, probs = Convert(Hypotheses, true, parsed(t, Hypotheses, wrap(strings.Replace(est, `"cite":"doi:10.1001/a"`, `"cite":"10.8888/made-up"`, 1))), studyEvidence(), Review{})
+	// The reported value's source is cited, so review checks it is current and puts it to Jev.
+	if cites := b["cites"].([]any); !slices.Contains(cites, any("call:c1")) {
+		t.Fatalf("reported source not among cites: %v", cites)
+	}
+	_, probs = Convert(Hypotheses, true, parsed(t, Hypotheses, wrap(strings.Replace(est, `"cite":"10.1001/b"`, `"cite":"10.8888/made-up"`, 1))), studyEvidence(), Review{})
 	if !strings.Contains(strings.Join(probs, "\n"), "hypothesis 1: reported cite 10.8888/made-up is neither") {
 		t.Fatalf("unresolved reported cite: %q", probs)
 	}

@@ -90,7 +90,7 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 			evidence = append(evidence, string(c.Body))
 		}
 		it.Checks = []Check{cite}
-		if b.Control.None != "" {
+		if b.Control.None != "" && !IsEstimate(b) {
 			it.Checks = append(it.Checks, Check{ID: "control", By: "server", Detail: "no control; at most caveated in Validation", Status: Unclear})
 		}
 		if cite.Status == Pass && a == nil {
@@ -102,6 +102,12 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 			if IsEstimate(b) {
 				text = b.Text + "\n" + estimateLine(b)
 				questions, ids = estimateQuestions, []string{"fits", "justified", "specified"}
+				if b.Reported != nil {
+					// A value attributed to a source is checked against it.
+					questions = maps.Clone(questions)
+					questions["reported"] = "Does the cited source report this value for this measure?"
+					ids = append(ids, "reported")
+				}
 			} else if c := b.Comparison; c != nil {
 				questions = maps.Clone(questions)
 				questions["comparison"] = "Do the measure, threshold or control, and outcome labels of the frozen comparison agree with the written prediction?"

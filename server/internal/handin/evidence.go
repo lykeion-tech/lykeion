@@ -73,6 +73,7 @@ type Evidence struct {
 	exp       []db.Record         // the Experimentation column's live records
 	attached  map[string][]string // a study's attached file's name → the calls that read it, call:KEY
 	hyps      map[string]bool     // the Hypotheses column's hypothesis texts, trimmed
+	estimates map[string]bool     // the texts of those that are estimates
 	values    map[string]bool     // names of the Experimentation column's values
 	expSaved  map[string]bool     // names of the files Experimentation saved
 	standing  []db.Record         // the hypotheses that still stand
@@ -144,7 +145,7 @@ func StandingHypotheses(study []db.Record) []db.Record {
 // A call's answer is searched as stored, which is cut at records.MaxCallAnswer.
 func NewEvidence(recs []db.Record) Evidence {
 	e := Evidence{found: map[string][]string{}, grounding: map[string]string{}, saved: map[string]bool{},
-		attached: map[string][]string{}, hyps: map[string]bool{}, values: map[string]bool{}, expSaved: map[string]bool{},
+		attached: map[string][]string{}, hyps: map[string]bool{}, estimates: map[string]bool{}, values: map[string]bool{}, expSaved: map[string]bool{},
 		standing: StandingHypotheses(recs)}
 	for _, r := range recs {
 		if r.SupersededAt != nil {
@@ -163,18 +164,21 @@ func NewEvidence(recs []db.Record) Evidence {
 			}
 		}
 		var b struct {
-			Answer    string   `json:"answer"`
-			Error     string   `json:"error"`
-			Results   []string `json:"results"`
-			SourceID  string   `json:"source_id"`
-			DOI       string   `json:"doi"`
-			Accession string   `json:"accession"`
-			Name      string   `json:"name"`
-			Tool      string   `json:"tool"`
-			Path      string   `json:"path"`
-			Server    string   `json:"server"`
-			Text      string   `json:"text"`
-			Args      struct {
+			Answer     string   `json:"answer"`
+			Error      string   `json:"error"`
+			Results    []string `json:"results"`
+			SourceID   string   `json:"source_id"`
+			DOI        string   `json:"doi"`
+			Accession  string   `json:"accession"`
+			Name       string   `json:"name"`
+			Tool       string   `json:"tool"`
+			Path       string   `json:"path"`
+			Server     string   `json:"server"`
+			Text       string   `json:"text"`
+			Prediction struct {
+				Shape string `json:"shape"`
+			} `json:"prediction"`
+			Args struct {
 				Name string `json:"name"`
 			} `json:"args"`
 		}
@@ -197,6 +201,9 @@ func NewEvidence(recs []db.Record) Evidence {
 		case review.KindHypothesis:
 			if r.BoardColumn == board.Hypotheses {
 				e.hyps[strings.TrimSpace(b.Text)] = true
+				if b.Prediction.Shape == "estimate" {
+					e.estimates[strings.TrimSpace(b.Text)] = true
+				}
 			}
 		case "value":
 			if r.BoardColumn == board.Experimentation {
@@ -300,6 +307,9 @@ func (e Evidence) Hypothesis(text string) bool { return e.hyps[strings.TrimSpace
 
 // Value says whether the study recorded a value named name.
 func (e Evidence) Value(name string) bool { return e.values[name] }
+
+// Estimate is whether the study's hypothesis with this text is an estimate.
+func (e Evidence) Estimate(text string) bool { return e.estimates[strings.TrimSpace(text)] }
 
 // Scripts are the script runs a value shown in file rests on, written run:KEY
 // as a value cites them (service.ScriptRuns); nil when none was recorded.

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/records"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -83,6 +84,7 @@ func TestEstimateQuestions(t *testing.T) {
 		"fits":      "Does the research question ask for this quantity to be measured, rather than for a claim to be tested?",
 		"justified": "Does the cited evidence justify measuring this quantity this way?",
 		"specified": "Is the method specified precisely enough that another analyst would compute the same number?",
+		"reported":  "Does the cited source report this value for this measure?",
 	}
 	if len(a.noul) != 1 || !maps.Equal(a.noul[0].Questions, want) {
 		t.Fatalf("questions: %+v", a.noul)
@@ -194,5 +196,28 @@ func TestStatusesEstimatePublishedValue(t *testing.T) {
 		if r.Status != Supported || len(r.Reasons) < 2 || r.Reasons[1] != want {
 			t.Errorf("%v: %+v", published, r)
 		}
+	}
+}
+
+// Final review: an estimate needs no control, so naming none is no caveat;
+// and a value attributed to a source is put to Jev against that source.
+func TestEstimateNoControlIsNoCaveatAndReportedIsChecked(t *testing.T) {
+	r := estHyp(t, "e1", "p1")
+	b := records.Body[HypothesisBody](r)
+	b.Control = Control{None: "not applicable"}
+	b.Reported = nil
+	r = rec(t, "e1", KindHypothesis, b)
+	a := &fakeAsker{}
+	res, err := Hypotheses(context.Background(), a, HypothesesInput{Question: "q", Items: []db.Record{r}, Cited: citedPaper(t, "p1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Items[0].Checks {
+		if c.ID == "control" {
+			t.Errorf("estimate got a no-control check: %+v", c)
+		}
+	}
+	if _, asked := a.noul[0].Questions["reported"]; asked {
+		t.Error("asked about a reported value the estimate does not have")
 	}
 }

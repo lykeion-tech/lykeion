@@ -205,6 +205,10 @@ func (c *converter) hypotheses(h HandIn, carried []review.Measure) {
 				ok = false
 			} else {
 				reported = &review.ReportedValue{Value: r.Value, Source: NormID(r.Cite), Key: keys[0]}
+				// Cited too, so review checks the source is current and Jev reads it.
+				if !slices.Contains(cites, keys[0]) {
+					cites = append(cites, keys[0])
+				}
 			}
 		}
 		if !ok {
@@ -316,6 +320,11 @@ func (c *converter) validation(h HandIn) {
 		ok := true
 		if !c.ev.Hypothesis(a.Hypothesis) {
 			c.problem("assessment %d: hypothesis %s matches no hypothesis of this study", i+1, a.Hypothesis)
+			ok = false
+		}
+		if c.ev.Estimate(a.Hypothesis) && (a.Control != nil || a.Observed != nil || a.Test != nil) {
+			// Review would make it invalid, and Experimentation cannot fix an assessment.
+			c.problem("assessment %d: an estimate is assessed by its measurement alone: leave control, observed and test null", i+1)
 			ok = false
 		}
 		for _, v := range []struct {
