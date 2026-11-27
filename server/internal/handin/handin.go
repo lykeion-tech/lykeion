@@ -106,6 +106,14 @@ type Hypothesis struct {
 	Cites           []string                  `json:"cites"`
 	Measure         *review.Measure           `json:"measure,omitempty"`
 	Comparison      *review.OutcomeComparison `json:"comparison,omitempty"`
+	Method          *string                   `json:"method"`
+	Reported        *ReportedIn               `json:"reported"`
+}
+
+// ReportedIn is a value a source already reports for an estimate's measure.
+type ReportedIn struct {
+	Value float64 `json:"value"`
+	Cite  string  `json:"cite"`
 }
 type Value struct {
 	Name    string  `json:"name"`
@@ -359,7 +367,7 @@ func (h Hypothesis) Body(cites []string) review.HypothesisBody {
 		p.Outcomes = nil
 	}
 	c := review.Control{Text: deref(h.Control), None: deref(h.NoControl)}
-	return review.HypothesisBody{Text: h.Text, Prediction: p, Control: c, Cites: cites, Measure: h.Measure, Comparison: h.Comparison}
+	return review.HypothesisBody{Text: h.Text, Prediction: p, Control: c, Cites: cites, Measure: h.Measure, Comparison: h.Comparison, Method: strings.TrimSpace(deref(h.Method))}
 }
 
 func deref(s *string) string {
@@ -528,7 +536,8 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	for i, x := range h.Hypotheses {
 		// The control problem is told in the hand-in's own words; review's
 		// version of it is dropped, and any other problem is still told.
-		badControl := (strings.TrimSpace(deref(x.Control)) != "") == (strings.TrimSpace(deref(x.NoControl)) != "")
+		// An estimate has no control; every other shape needs exactly one.
+		badControl := x.PredictionShape != "estimate" && (strings.TrimSpace(deref(x.Control)) != "") == (strings.TrimSpace(deref(x.NoControl)) != "")
 		add(!badControl, "hypotheses %d: give either a control or the reason there is none", i+1)
 		b, _ := json.Marshal(x.Body(x.Cites))
 		if err := review.Validate(review.KindHypothesis, board.Hypotheses, b); err != nil {
