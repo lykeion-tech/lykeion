@@ -38,18 +38,17 @@ func (f *inFix) cmd(t *testing.T, c Command) (string, []byte) {
 func TestStudyCommandDrafts(t *testing.T) {
 	f := inSetup(t)
 	u := f.member(t, "a@lab.org", "UA", true)
-	agent, study := uuid.New(), uuid.New()
+	study := uuid.New()
 	d := &fakeDrafter{id: study}
 	f.S.Drafter = d
-	f.Inst.DraftingAgentID = &agent
 	if _, err := f.Env.Owner.Exec(context.Background(), `INSERT INTO autoresearch(id,workspace_id,owner_id,title,execution_mode) VALUES($1,$2,$3,'s','run_only')`, study, f.WS, u); err != nil {
 		t.Fatal(err)
 	}
-	text, _ := f.cmd(t, Command{Name: "/study", Text: " glucose and sleep ", User: "UA"})
+	text, _ := f.cmd(t, Command{Name: "/to-do", Text: " glucose and sleep ", User: "UA"})
 	if text != "Drafting your study. I'll DM you the link." {
 		t.Fatal(text)
 	}
-	if len(d.got) != 1 || d.got[0].AgentID != agent || d.got[0].Prompt != "glucose and sleep" || d.got[0].Priority != "none" {
+	if len(d.got) != 1 || d.got[0].Prompt != "glucose and sleep" || d.got[0].Priority != "none" {
 		t.Fatalf("%+v", d.got)
 	}
 	if n := f.count(t, `SELECT count(*) FROM slack_post WHERE kind='draft' AND user_id=$1 AND autoresearch_id=$2 AND channel='D1' AND thread_ts=''`, u, study); n != 1 {
@@ -60,15 +59,13 @@ func TestStudyCommandDrafts(t *testing.T) {
 func TestStudyCommandUnusableAgent(t *testing.T) {
 	f := inSetup(t)
 	f.member(t, "a@lab.org", "UA", true)
-	agent := uuid.New()
-	f.S.Drafter = &fakeDrafter{err: UserError("choose an agent every member can use")}
-	f.Inst.DraftingAgentID = &agent
-	text, _ := f.cmd(t, Command{Name: "/study", Text: "x", User: "UA"})
-	if text != "choose an agent every member can use" || f.count(t, `SELECT count(*) FROM slack_post`) != 0 {
+	f.S.Drafter = &fakeDrafter{err: UserError("Connect your machine and try again.")}
+	text, _ := f.cmd(t, Command{Name: "/to-do", Text: "x", User: "UA"})
+	if text != "Connect your machine and try again." || f.count(t, `SELECT count(*) FROM slack_post`) != 0 {
 		t.Fatal(text)
 	}
 	f.S.Drafter = &fakeDrafter{err: errors.New("db down xoxb-1-bot")}
-	text, _, err := f.S.HandleCommand(context.Background(), f.Inst, Command{Name: "/study", Text: "x", User: "UA"})
+	text, _, err := f.S.HandleCommand(context.Background(), f.Inst, Command{Name: "/to-do", Text: "x", User: "UA"})
 	if text != "Something went wrong. Try again." || err == nil {
 		t.Fatal(text, err)
 	}
@@ -77,8 +74,10 @@ func TestStudyCommandUnusableAgent(t *testing.T) {
 func TestStudyUsageAndUnbound(t *testing.T) {
 	f := inSetup(t)
 	f.member(t, "a@lab.org", "UA", true)
-	if text, _ := f.cmd(t, Command{Name: "/study", User: "UA"}); text != "Usage: /study <what you want to study>" {
-		t.Fatal(text)
+	for _, name := range []string{"/to-do", "/study"} {
+		if text, _ := f.cmd(t, Command{Name: name, User: "UA"}); text != "Usage: /to-do <what you want to study>" {
+			t.Fatalf("%s: %q", name, text)
+		}
 	}
 	text, _ := f.cmd(t, Command{Name: "/new", User: "U9"})
 	if !strings.Contains(text, "/app/#/slack/link?") {
@@ -142,7 +141,7 @@ func TestClearAsksThenDeletes(t *testing.T) {
 func TestHelpText(t *testing.T) {
 	f := inSetup(t)
 	f.member(t, "a@lab.org", "UA", true)
-	want := "DM me, or @mention me in a channel, to ask about your workspace. Answers in a channel are visible to everyone in it, including people outside your Lykeion workspace. /study <request> drafts a study. /new starts a new conversation. /clear deletes the current one."
+	want := "DM me, or @mention me in a channel, to ask about your workspace. Answers in a channel are visible to everyone in it, including people outside your Lykeion workspace. /to-do <request> drafts a study in To-do. /new starts a new conversation. /clear deletes the current one."
 	if text, _ := f.cmd(t, Command{Name: "/help", User: "UA"}); text != want {
 		t.Fatal(text)
 	}

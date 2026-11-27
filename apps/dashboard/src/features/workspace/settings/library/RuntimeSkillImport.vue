@@ -167,9 +167,9 @@ function toggleAll() {
 </script>
 <template>
   <div class="runtime-import">
-    <label class="field"
-      >Runtime<SelectPicker
-        ><select
+    <div class="field">
+      <SelectPicker>
+        <select
           :value="runtime"
           aria-label="Runtime"
           :disabled="active || changing"
@@ -180,9 +180,9 @@ function toggleAll() {
             {{ r.custom_name || r.device_name }} · {{ label(r.harness)
             }}{{ r.status === 'offline' ? ' · Offline' : '' }}
           </option>
-        </select></SelectPicker
-      ></label
-    >
+        </select>
+      </SelectPicker>
+    </div>
     <p v-if="runtimes.isPending.value" role="status">Loading runtimes…</p>
     <p v-else-if="runtimes.error.value" role="alert">{{ runtimes.error.value.message }}</p>
     <p v-else-if="!owned.length" class="empty">
@@ -195,7 +195,7 @@ function toggleAll() {
       placeholder="Search local skills"
       :disabled="!inventory.length || active"
     />
-    <p v-if="error || job.error.value" role="alert">
+    <p v-if="error || job.error.value" class="runtime-message" role="alert">
       {{ error || job.error.value?.message }}
       <button
         v-if="request && job.error.value"
@@ -206,11 +206,12 @@ function toggleAll() {
         Retry
       </button>
     </p>
-    <p v-if="active" role="status">
+    <p v-if="active" class="runtime-message" role="status">
       {{ operation === 'list' ? 'Discovering installed skills…' : 'Importing selected skills…' }}
     </p>
     <p
       v-if="job.data.value?.status === 'failed' || job.data.value?.status === 'timeout'"
+      class="runtime-message"
       role="alert"
     >
       {{ job.data.value.error || `Runtime request ${job.data.value.status}.` }}
@@ -236,9 +237,6 @@ function toggleAll() {
         }}
       </p></template
     >
-    <p v-else-if="!runtime" class="empty">
-      Choose a connected runtime to browse its installed skills.
-    </p>
     <ul v-if="operation === 'import' && job.data.value?.result.items?.length" class="outcomes">
       <li v-for="item in job.data.value.result.items" :key="item.key">
         <span
@@ -249,14 +247,7 @@ function toggleAll() {
       </li>
     </ul>
     <div class="runtime-actions">
-      <span
-        >{{
-          operation === 'import'
-            ? (job.data.value?.keys.length ?? selected.length)
-            : selected.length
-        }}
-        selected</span
-      ><button
+      <button
         v-if="operation === 'list'"
         class="button primary"
         :disabled="active || !selected.length || job.isError.value"
@@ -278,6 +269,9 @@ function toggleAll() {
 }
 .field select {
   margin-top: 7px;
+}
+.runtime-message {
+  margin-top: 12px;
 }
 select,
 input[type='search'] {
@@ -325,6 +319,9 @@ input[type='search'] {
   padding-top: 20px;
   font-size: 13px;
   color: var(--muted);
+}
+.runtime-actions > .primary {
+  margin-inline-start: auto;
 }
 .outcomes {
   list-style: none;

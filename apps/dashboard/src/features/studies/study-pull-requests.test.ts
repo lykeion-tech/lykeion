@@ -56,7 +56,7 @@ async function mount(rows: Record<string, unknown>[]) {
   return root;
 }
 it.each([
-  ['open', 'passed', 'mergeable', 'Open', 'All checks passed (3)', 'Mergeable'],
+  ['open', 'passed', 'mergeable', 'Open', 'All checks passed (3)', ''],
   ['draft', 'failed', 'conflicting', 'Draft', 'Failed: lint, test', 'Conflicts'],
   ['open', 'pending', 'blocked', 'Open', 'Checks running', 'Blocked'],
   ['open', null, 'behind', 'Open', '', 'Behind'],
@@ -66,9 +66,11 @@ it.each([
     const root = await mount([{ ...pr, state, ci_state, mergeability, snapshot_stale: true }]);
     const link = all(root).find((n) => n.tag === 'a')!;
     expect(link.props).toMatchObject({ href: pr.html_url, target: '_blank' });
-    for (const s of ['lab/science #1', 'Data', 'ada', label!, merge!])
+    for (const s of ['lab/science #1', 'Data', 'ada', label!])
       expect(textOf(link)).toContain(s);
     if (ci) expect(textOf(link)).toContain(ci + ' (stale)');
+    if (merge) expect(textOf(link)).toContain(merge + ' (stale)');
+    else expect(textOf(link)).not.toContain('Mergeable');
   },
 );
 it('shows the files changed before signed insertion and deletion counts', async () => {

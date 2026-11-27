@@ -26,9 +26,9 @@ const operationId = crypto.randomUUID();
 const description = ref(saved.value.description);
 const stage = ref<StudyProposalContent['stage']>(saved.value.stage);
 function assignment(p: StudyProposal) {
-  return p.assignee.type === 'agent'
-    ? 'agent:' + p.assignee.agent_id
-    : 'team:' + p.assignee.pack_id;
+  const { type, agent_id, pack_id } = p.assignee;
+  const id = type === 'agent' ? agent_id : pack_id;
+  return id ? `${type}:${id}` : '';
 }
 const selected = ref(assignment(saved.value));
 const project = ref(saved.value.project_id ?? '');

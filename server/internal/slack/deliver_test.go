@@ -199,6 +199,21 @@ func TestDraftReadyDM(t *testing.T) {
 	}
 }
 
+func TestTodoDraftReadyDM(t *testing.T) {
+	f := inSetup(t)
+	u := f.member(t, "ua@lab.org", "UA", true)
+	post, _ := draft(t, f, u, false, false)
+	if _, err := f.Env.Owner.Exec(t.Context(), `UPDATE study_draft_request SET save_to_todo=true, completed=true
+		WHERE workspace_id=$1 AND autoresearch_id=(SELECT autoresearch_id FROM slack_post WHERE workspace_id=$1 AND id=$2)`, f.WS, post); err != nil {
+		t.Fatal(err)
+	}
+	f.deliver(t)
+	p := f.got("chat.postMessage")
+	if len(p) != 1 || p[0].Form.Get("text") != "Your study draft is ready in To-do: https://lyk.test/app/#/studies" || p[0].Form.Get("channel") != "D1" {
+		t.Fatalf("%+v", p)
+	}
+}
+
 func TestDraftFailedAndWaiting(t *testing.T) {
 	f := inSetup(t)
 	u := f.member(t, "ua@lab.org", "UA", true)

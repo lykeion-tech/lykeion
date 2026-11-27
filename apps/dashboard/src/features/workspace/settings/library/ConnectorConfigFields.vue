@@ -68,7 +68,7 @@ defineProps<{ disabled?: boolean }>();
       aria-label="Name"
       placeholder="e.g. lab-search"
       :disabled="disabled"
-    /><small>A unique name in this workspace.</small></label
+    /></label
   >
   <span class="label">Connection</span>
   <div class="transports">
@@ -99,7 +99,7 @@ defineProps<{ disabled?: boolean }>();
         placeholder="https://mcp.example.com/mcp"
         autocomplete="off"
         :disabled="disabled"
-      /><small>A Streamable HTTP MCP endpoint.</small></label
+      /></label
     >
     <div class="subhead">
       <b>HTTP headers</b
@@ -150,7 +150,6 @@ defineProps<{ disabled?: boolean }>();
         <Icon name="plus" :size="12" />Add argument
       </button>
     </div>
-    <p class="hint">Passed to the command in this order.</p>
     <div v-for="(_, i) in value.args" :key="i" class="pair">
       <input
         v-model="value.args[i]"
@@ -182,10 +181,10 @@ defineProps<{ disabled?: boolean }>();
       Command arguments and environment values must contain no secrets. The command runs on the
       machine claiming the run.
     </p>
-    <label
-      ><input v-model="value.keyless" type="checkbox" :disabled="disabled" /> I confirm that this
-      command, its arguments, and environment contain no credentials.</label
-    >
+    <label class="confirmation">
+      <input v-model="value.keyless" type="checkbox" :disabled="disabled" />
+      <span>I confirm that this command, its arguments, and environment contain no credentials.</span>
+    </label>
     <div v-for="(pair, i) in value.env" :key="i" class="pair">
       <input
         v-model="pair.name"
@@ -219,7 +218,6 @@ defineProps<{ disabled?: boolean }>();
   display: block;
   margin-top: 7px;
 }
-.field small,
 .hint {
   display: block;
   font-size: 13px;
@@ -263,7 +261,7 @@ defineProps<{ disabled?: boolean }>();
   color: var(--muted);
   margin-top: 3px;
 }
-input {
+input:not([type='checkbox']) {
   width: 100%;
   min-width: 0;
   background: var(--input);
@@ -274,6 +272,20 @@ input {
   font: inherit;
   font-size: 13px;
   height: 34px;
+}
+.confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.confirmation input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
 }
 .subhead {
   display: flex;

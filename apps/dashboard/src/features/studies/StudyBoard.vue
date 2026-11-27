@@ -114,6 +114,7 @@ const teams = useTeams('', '');
 const proposalEditor = ref<StudyProposal>();
 function proposalAssignee(p: StudyProposal) {
   const a = p.assignee;
+  if (!a.agent_id && !a.pack_id) return 'Unassigned';
   return a.type === 'agent'
     ? (agents.data.value?.find((agent) => agent.id === a.agent_id)?.name ?? 'Unavailable agent')
     : (teams.data.value?.find((team) => team.id === a.pack_id)?.name ?? 'Unavailable Team');
@@ -166,8 +167,7 @@ function openStudyMenu(
   card: Card | StudyProposal,
   fromButton = false,
 ) {
-  // Only a study's owner deletes it, at any time.
-  if (card.owner_id !== me.data.value?.id || projectBusy.value) return;
+  if (projectBusy.value) return;
   event.preventDefault();
   closeMenus();
   if (projectStudyId.value) closeProjectPicker(false, false);
@@ -230,7 +230,7 @@ async function updateStudyProject(
 ) {
   const proposal = projectProposal.value;
   const study = proposal ?? projectStudy.value;
-  if (!study || study.owner_id !== me.data.value?.id || projectBusy.value) return;
+  if (!study || projectBusy.value) return;
   const workspace = workspaceId.value;
   const generation = workspaceGeneration;
   const current = () => workspaceGeneration === generation && workspaceId.value === workspace;
@@ -238,11 +238,10 @@ async function updateStudyProject(
   actionError.value = '';
   try {
     if (proposal && 'research_id' in change) {
-      const { revision, title, priority, description, stage, assignee } = proposal;
       await api(
-        'PUT',
-        `/api/study-proposals/${proposal.id}`,
-        { revision, title, priority, description, stage, assignee, project_id: change.research_id },
+        'PATCH',
+        `/api/study-proposals/${proposal.id}/project`,
+        { revision: proposal.revision, project_id: change.research_id },
         undefined,
         { workspace },
       );
@@ -289,7 +288,7 @@ async function removeStudy(id: string) {
   }
 }
 async function removeProposal(proposal: StudyProposal) {
-  if (deletingProposal.value || proposal.owner_id !== me.data.value?.id) return;
+  if (deletingProposal.value) return;
   studyMenu.value = null;
   studyMenuTrigger.value?.focus();
   if (!confirm('Delete this To-do? This cannot be undone.')) return;
@@ -596,7 +595,6 @@ onUnmounted(() => {
       <div class="working-control">
         <span
           class="button compact working-chip"
-          :class="{ 'working-has-agents': runningStudyCount }"
           role="status"
           :aria-label="
             cards.isSuccess.value
@@ -843,7 +841,6 @@ onUnmounted(() => {
             </span>
           </button>
           <button
-            v-if="p.owner_id === me.data.value?.id"
             class="icon-button study-card-actions"
             :aria-label="`Actions for ${p.title || p.description}`"
             aria-haspopup="menu"
@@ -954,7 +951,6 @@ onUnmounted(() => {
             </div>
           </button>
           <button
-            v-if="card.owner_id === me.data.value?.id"
             class="icon-button study-card-actions"
             :aria-label="`Actions for ${number(card)}`"
             aria-haspopup="menu"
@@ -981,34 +977,50 @@ onUnmounted(() => {
         />{{ group.name }}<small>{{ group.cards.length }}</small>
       </button>
       <template v-if="!collapsedGroups.includes(group.id)">
-        <button v-for="card in group.cards" :key="card.id" class="list-row" @click="open(card.id)">
-          <small>{{ number(card) }}</small
-          ><span class="truncate">{{ studyDisplayTitle(card.title) }}</span>
-          <span class="row-meta push-right">
-            <span
-              v-if="cardStateLabel(card) && group.id !== 'blocked'"
-              class="chip"
-              :class="'chip-' + card.state"
-              >{{ cardStateLabel(card) }}</span
-            >
-            <span v-if="card.queued" class="chip chip-queued">queued</span>
-            <span v-if="card.flag" class="chip" :class="'chip-' + card.flag">{{
-              card.flag.replace(/_/g, ' ')
-            }}</span>
-            <span v-if="group.id === 'blocked'" class="chip">{{
-              columnName(card.board_column)
-            }}</span>
-            <span v-if="finalStage(card)" class="chip">{{ finalStage(card) }}</span>
-            <span
-              v-if="card.ending && !(card.ending === 'stopped' && boardColumnOf(card) === 'done')"
-              class="chip"
-              :class="'chip-' + card.ending"
-              >{{ endLabel(card) }}</span
-            >
-            <span v-if="card.role">{{ roleLabel(card.role) }}</span>
-            <span>{{ ownerName(card.owner_id) }}</span>
-          </span>
-        </button>
+        <div v-for="card in group.cards" :key="card.id" class="study-card">
+          <button
+            class="list-row"
+            @contextmenu="openStudyMenu($event, card)"
+            @keydown.shift.f10="openStudyMenu($event, card)"
+            @click="open(card.id)"
+          >
+            <small>{{ number(card) }}</small
+            ><span class="truncate">{{ studyDisplayTitle(card.title) }}</span>
+            <span class="row-meta push-right">
+              <span
+                v-if="cardStateLabel(card) && group.id !== 'blocked'"
+                class="chip"
+                :class="'chip-' + card.state"
+                >{{ cardStateLabel(card) }}</span
+              >
+              <span v-if="card.queued" class="chip chip-queued">queued</span>
+              <span v-if="card.flag" class="chip" :class="'chip-' + card.flag">{{
+                card.flag.replace(/_/g, ' ')
+              }}</span>
+              <span v-if="group.id === 'blocked'" class="chip">{{
+                columnName(card.board_column)
+              }}</span>
+              <span v-if="finalStage(card)" class="chip">{{ finalStage(card) }}</span>
+              <span
+                v-if="card.ending && !(card.ending === 'stopped' && boardColumnOf(card) === 'done')"
+                class="chip"
+                :class="'chip-' + card.ending"
+                >{{ endLabel(card) }}</span
+              >
+              <span v-if="card.role">{{ roleLabel(card.role) }}</span>
+              <span>{{ ownerName(card.owner_id) }}</span>
+            </span>
+          </button>
+          <button
+            class="icon-button study-card-actions"
+            :aria-label="`Actions for ${number(card)}`"
+            aria-haspopup="menu"
+            :aria-expanded="studyMenu?.id === card.id"
+            @click.stop="openStudyMenu($event, card, true)"
+          >
+            <Icon name="more" :size="14" />
+          </button>
+        </div>
         <p v-if="!group.cards.length" class="list-empty">No studies</p>
       </template>
     </section>
@@ -1790,9 +1802,6 @@ onUnmounted(() => {
 }
 .working-chip:hover {
   background: var(--surface);
-}
-.working-has-agents {
-  border-color: var(--primary) !important;
 }
 .working-icons {
   display: inline-flex;

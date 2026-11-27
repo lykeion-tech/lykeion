@@ -319,7 +319,7 @@ func (q *Queries) GetSlackChat(ctx context.Context, arg GetSlackChatParams) (Sla
 }
 
 const getSlackDraftState = `-- name: GetSlackDraftState :one
-SELECT d.completed, d.card_id,
+SELECT d.completed, d.card_id, d.save_to_todo,
   COALESCE((SELECT r.status IN ('failed', 'skipped') FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), false)::boolean AS failed,
   COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
 FROM study_draft_request d
@@ -327,10 +327,11 @@ WHERE d.workspace_id = app_workspace() AND d.autoresearch_id = $1
 `
 
 type GetSlackDraftStateRow struct {
-	Completed bool       `json:"completed"`
-	CardID    *uuid.UUID `json:"card_id"`
-	Failed    bool       `json:"failed"`
-	Reason    string     `json:"reason"`
+	Completed  bool       `json:"completed"`
+	CardID     *uuid.UUID `json:"card_id"`
+	SaveToTodo bool       `json:"save_to_todo"`
+	Failed     bool       `json:"failed"`
+	Reason     string     `json:"reason"`
 }
 
 func (q *Queries) GetSlackDraftState(ctx context.Context, autoresearchID uuid.UUID) (GetSlackDraftStateRow, error) {
@@ -339,6 +340,7 @@ func (q *Queries) GetSlackDraftState(ctx context.Context, autoresearchID uuid.UU
 	err := row.Scan(
 		&i.Completed,
 		&i.CardID,
+		&i.SaveToTodo,
 		&i.Failed,
 		&i.Reason,
 	)

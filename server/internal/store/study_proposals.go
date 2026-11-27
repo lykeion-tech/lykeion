@@ -90,10 +90,10 @@ func (t *Tx) RecordProposalLaunch(ctx context.Context, id, operation, card uuid.
 	return err
 }
 
-func (t *Tx) DiscardStudyProposal(ctx context.Context, id uuid.UUID, revision int64) error {
-	tag, err := t.raw.Exec(ctx, `UPDATE study_proposal SET description=NULL,stage=NULL,assignee=NULL,project_id=NULL,discarded_at=now(),updated_at=now(),last_save_revision=NULL,revision=revision+1
- WHERE workspace_id=$1 AND id=$2 AND revision=$3 AND card_id IS NULL AND discarded_at IS NULL`, t.WS, id, revision)
-	if err == nil && tag.RowsAffected() != 1 {
+func (t *Tx) ChangeStudyProposalProjectOrDiscard(ctx context.Context, id uuid.UUID, revision int64, project *uuid.UUID, discard bool) error {
+	var changed bool
+	err := t.raw.QueryRow(ctx, `SELECT public.change_study_proposal_project_or_discard($1,$2,$3,$4)`, id, revision, project, discard).Scan(&changed)
+	if err == nil && !changed {
 		return pgx.ErrNoRows
 	}
 	return err

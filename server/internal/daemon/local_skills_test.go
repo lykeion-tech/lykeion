@@ -104,3 +104,30 @@ func TestRuntimeSkillCodexHomeFollowsProviderEnvironment(t *testing.T) {
 		t.Fatalf("CODEX_HOME source semantics: %+v %v", roots, err)
 	}
 }
+
+func TestRuntimeSkillInventoryKeepsValidBundles(t *testing.T) {
+	for _, harness := range []string{"codex", "claude"} {
+		t.Run(harness, func(t *testing.T) {
+			home := t.TempDir()
+			provider := filepath.Join(home, "."+harness, "skills")
+			bad := filepath.Join(provider, "bad")
+			localSkillFixture(t, bad, "bad")
+			localSkillFixture(t, filepath.Join(provider, "provider"), "provider")
+			localSkillFixture(t, filepath.Join(home, ".agents", "skills", "shared"), "shared")
+			if harness == "codex" {
+				if err := os.WriteFile(filepath.Join(bad, "oversized"), make([]byte, skill.FileBytes+1), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				localSkillFixture(t, filepath.Join(bad, "nested"), "nested")
+			}
+			list, err := listLocalSkills(harness, home, "")
+			if err != nil || len(list) != 2 || list[0].Key != "provider" || list[1].Key != "shared" {
+				t.Fatalf("inventory: %+v, %v", list, err)
+			}
+			if _, _, err := loadLocalSkill(harness, home, "", "bad"); err == nil {
+				t.Fatal("invalid bundle accepted for import")
+			}
+		})
+	}
+}

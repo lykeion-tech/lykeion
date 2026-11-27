@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
 )
 
 func (h *H) listStudyProposals(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +93,7 @@ func answerProposal(w http.ResponseWriter, r *http.Request, err error) bool {
 	return answerCardCreate(w, r, err)
 }
 
-func lockedProposal(r *http.Request, tx *store.Tx, id, user uuid.UUID) (store.StudyProposal, error) {
+func lockedProposal(r *http.Request, tx *store.Tx, id uuid.UUID) (store.StudyProposal, error) {
 	if id == uuid.Nil {
 		return store.StudyProposal{}, cardInputError("proposal ID must be nonzero")
 	}
@@ -103,7 +104,12 @@ func lockedProposal(r *http.Request, tx *store.Tx, id, user uuid.UUID) (store.St
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.StudyProposal{}, nil
 	}
-	if err == nil && p.OwnerID != user {
+	return p, err
+}
+
+func lockedOwnedProposal(r *http.Request, tx *store.Tx, id, user uuid.UUID) (store.StudyProposal, error) {
+	p, err := lockedProposal(r, tx, id)
+	if err == nil && p.ID != uuid.Nil && p.OwnerID != user {
 		return p, forbidden("only this proposal’s owner may change it")
 	}
 	return p, err
@@ -129,7 +135,7 @@ func (h *H) saveStudyProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	var out store.StudyProposal
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		p, err := lockedProposal(r, tx, id, user)
+		p, err := lockedOwnedProposal(r, tx, id, user)
 		if err != nil {
 			return err
 		}
@@ -199,7 +205,7 @@ func (h *H) startStudyProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	var receipt proposalReceipt
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		p, err := lockedProposal(r, tx, id, user)
+		p, err := lockedOwnedProposal(r, tx, id, user)
 		if err != nil {
 			return err
 		}
@@ -262,6 +268,22 @@ func (h *H) startStudyProposal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *H) changeStudyProposalProject(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Revision int64        `json:"revision"`
+		Project  nullableUUID `json:"project_id"`
+	}
+	if err := readJSON(r, &in); err != nil || in.Revision < 1 || !in.Project.Set {
+		writeErr(w, 400, "a saved revision and project_id are required")
+		return
+	}
+	h.changeSharedStudyProposal(w, r, id, in.Revision, in.Project.V, false)
+}
+
 func (h *H) discardStudyProposal(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
 	if !ok {
@@ -272,8 +294,13 @@ func (h *H) discardStudyProposal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "a saved revision is required")
 		return
 	}
-	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		p, err := lockedProposal(r, tx, id, user)
+	h.changeSharedStudyProposal(w, r, id, rev, nil, true)
+}
+
+func (h *H) changeSharedStudyProposal(w http.ResponseWriter, r *http.Request, id uuid.UUID, rev int64, project *uuid.UUID, discard bool) {
+	ctx := r.Context()
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		p, err := lockedProposal(r, tx, id)
 		if err != nil {
 			return err
 		}
@@ -283,16 +310,27 @@ func (h *H) discardStudyProposal(w http.ResponseWriter, r *http.Request) {
 		if p.CardID != nil {
 			return startedProposal{*p.CardID, *p.CardNumber}
 		}
-		if p.DiscardedAt != nil && p.Revision-1 == rev {
+		if discard && p.DiscardedAt != nil && p.Revision-1 == rev {
 			return nil
 		}
 		if p.DiscardedAt != nil || p.Revision != rev {
 			return proposalRevisionConflict{p.Revision}
 		}
-		if err := tx.DiscardStudyProposal(r.Context(), id, rev); err != nil {
+		if project != nil {
+			if _, err := tx.Q.GetResearch(ctx, db.GetResearchParams{WorkspaceID: ws, ID: *project}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return cardInputError("project is not in this workspace")
+				}
+				return err
+			}
+		}
+		if err := tx.ChangeStudyProposalProjectOrDiscard(ctx, id, rev, project, discard); err != nil {
 			return err
 		}
-		return tx.Emit(r.Context(), "study_proposal.discarded", nil, store.User(user), map[string]any{"proposal_id": id})
+		if discard {
+			return tx.Emit(ctx, "study_proposal.discarded", nil, store.User(user), map[string]any{"proposal_id": id})
+		}
+		return tx.Emit(ctx, "study_proposal.saved", nil, store.User(user), map[string]any{"proposal_id": id, "revision": rev + 1})
 	})
 	if answerProposal(w, r, err) {
 		w.WriteHeader(http.StatusNoContent)

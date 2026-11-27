@@ -88,6 +88,30 @@ async function mount(scope?: 'mine' | 'workspace', projectId?: string, user: str
   return { root, client, props, router, button, click, settle };
 }
 describe('study page scope', () => {
+  it('shows actions on colleagues’ To-dos and studies in Board and List', async () => {
+    const t = await mount();
+    t.client.setQueryData(keys.workspace('lab'), { slug: 'lab', display_prefix: 'LAB' });
+    t.client.setQueryData(keys.cards('lab'), [card('Other study', 'other')]);
+    t.client.setQueryData(keys.proposals('lab'), [
+      {
+        id: 'proposal',
+        title: 'Other To-do',
+        description: 'Draft',
+        owner_id: 'other',
+        stage: 'grounding',
+        assignee: { type: 'team' },
+        revision: 1,
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+    await t.settle();
+    expect(t.button('Actions for Other To-do')).toBeTruthy();
+    expect(t.button('Actions for LAB-1')).toBeTruthy();
+    await t.click('Board');
+    expect(t.button('Actions for Other To-do')).toBeTruthy();
+    expect(t.button('Actions for LAB-1')).toBeTruthy();
+  });
+
   it('shows the actual final stage on completed cards without a redundant Done badge', async () => {
     const t = await mount();
     t.client.setQueryData(keys.cards('lab'), [

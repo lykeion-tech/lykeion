@@ -411,12 +411,12 @@ func TestADeleteThatRollsBackKeepsTheFiles(t *testing.T) {
 	s.H.Engine = nil
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	b := s.signIn(t, "b@lab.org")
 	csv := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
 	var c card
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv}}, &c)
-	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, b, w.ID, nil, nil); code != 403 {
-		t.Fatal("a non-owner deleted the study")
+	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, b, w.ID, nil, nil); code != 404 {
+		t.Fatalf("a non-member reached the study: %d", code)
 	}
 	if rc, err := s.H.Blobs.Get(t.Context(), w.ID+"/attachments/"+csv); err != nil {
 		t.Fatalf("blob gone after a refused delete: %v", err)

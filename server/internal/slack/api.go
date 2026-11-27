@@ -19,7 +19,6 @@ import (
 
 // DraftIn is a study draft asked for from Slack.
 type DraftIn struct {
-	AgentID          uuid.UUID
 	Prompt, Priority string
 }
 

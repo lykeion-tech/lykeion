@@ -1072,7 +1072,7 @@ func (h *H) resolveInbox(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteCard removes a study and everything recorded on it, at any point of
-// its work; only its owner may. Its open agent runs are cancelled first, so
+// its work. Its open agent runs are cancelled first, so
 // their tokens stop working. Its events stay, with the card's id in the
 // payload; the database clears their card reference and drops its runs.
 func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
@@ -1090,9 +1090,6 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 		c, err := tx.Q.LockCard(r.Context(), db.LockCardParams{ID: id, WorkspaceID: ws})
 		if err != nil {
 			return err
-		}
-		if c.OwnerID != user {
-			return forbidden("only the study's owner deletes it")
 		}
 		if err := service.CancelCardRuns(r.Context(), tx, user, id); err != nil {
 			return err

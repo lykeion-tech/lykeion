@@ -25,7 +25,7 @@ type Message struct {
 
 const (
 	helpText = "DM me, or @mention me in a channel, to ask about your workspace. Answers in a channel are visible to everyone in it, including people outside your Lykeion workspace. " +
-		"/study <request> drafts a study. /new starts a new conversation. /clear deletes the current one."
+		"/to-do <request> drafts a study in To-do. /new starts a new conversation. /clear deletes the current one."
 	offlineText = "Your machine is offline. Connect it in Lykeion and ask again."
 	filesText   = "Aristotle can't read Slack files yet; I answered from your text only."
 	maxQuestion = 8000
@@ -126,16 +126,9 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 		return say(reply{true, "Questions can be up to 8000 characters."})
 	}
 	err = s.Store.InWorkspace(ctx, inst.WorkspaceID, user, func(tx *store.Tx) error {
-		harness := ""
-		for _, h := range []string{"claude", "codex"} {
-			ok, err := tx.Q.AristotleRuntimeAvailable(ctx, db.AristotleRuntimeAvailableParams{Harness: h, RequireHealthy: true})
-			if err != nil {
-				return err
-			}
-			if ok {
-				harness = h
-				break
-			}
+		harness, err := tx.Q.SlackAristotleHarness(ctx, user)
+		if err != nil {
+			return err
 		}
 		if harness == "" {
 			replies = append(replies, reply{false, offlineText})

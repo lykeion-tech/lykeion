@@ -673,6 +673,22 @@ func (q *Queries) SetConversationChatHarness(ctx context.Context, arg SetConvers
 	return err
 }
 
+const slackAristotleHarness = `-- name: SlackAristotleHarness :one
+SELECT CASE WHEN bool_or(harness='claude') THEN 'claude'
+            WHEN bool_or(harness='codex') THEN 'codex'
+            ELSE '' END::text
+FROM runtime WHERE workspace_id=app_workspace() AND owner_id = $1
+  AND harness IN ('claude', 'codex') AND status='online'
+  AND last_seen_at>now()-interval '60 seconds' AND unhealthy_reason IS NULL
+`
+
+func (q *Queries) SlackAristotleHarness(ctx context.Context, ownerID uuid.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, slackAristotleHarness, ownerID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const snapshotCoresearchConversation = `-- name: SnapshotCoresearchConversation :one
 UPDATE coresearch_conversation SET snapshot_harness= $1,snapshot_model= $2,snapshot_instructions= $3,updated_at=now() WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $4 RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at
 `

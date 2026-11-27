@@ -27,7 +27,7 @@ async function link() {
 }
 </script>
 <template>
-  <div class="center-empty">
+  <div class="center-empty account-verification">
     <p v-if="state === 'done'" role="status">
       Slack account linked. You can go back to Slack and message Aristotle.
     </p>
@@ -50,6 +50,7 @@ async function link() {
 h1 {
   font-size: 18px;
   font-weight: 600;
+  text-align: center;
   margin: 0 0 12px;
 }
 .actions {

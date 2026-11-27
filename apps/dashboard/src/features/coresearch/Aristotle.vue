@@ -21,10 +21,7 @@ onMounted(() => {
     },
     loop: !props.still,
     autoplay: !props.still && !matchMedia('(prefers-reduced-motion: reduce)').matches,
-    path: new URL(
-      props.portrait ? 'brand/aristotle-portrait.json' : 'brand/aristotle-idle.json',
-      document.baseURI,
-    ).href,
+    path: `${import.meta.env.BASE_URL}brand/${props.portrait ? 'aristotle-portrait.json' : 'aristotle-idle.json'}`,
   });
 });
 onUnmounted(() => animation?.destroy());

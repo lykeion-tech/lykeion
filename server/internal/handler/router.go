@@ -385,6 +385,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/study-runs/{card}/{stage}/{round}", h.studyRun)
 			r.Get("/api/study-proposals", h.listStudyProposals)
 			r.Put("/api/study-proposals/{id}", h.saveStudyProposal)
+			r.Patch("/api/study-proposals/{id}/project", h.changeStudyProposalProject)
 			r.Delete("/api/study-proposals/{id}", h.discardStudyProposal)
 			r.Post("/api/study-proposals/{id}/start", h.startStudyProposal)
 			r.Post("/api/packs/{id}/approve", h.approvePack)

@@ -35,6 +35,9 @@ func (s *Service) HandleCommand(ctx context.Context, inst db.SlackInstallation, 
 		return linkText(link), nil, nil
 	}
 	name := strings.TrimPrefix(c.Name, "/")
+	if name == "study" { // Older Slack manifests still register /study.
+		name = "to-do"
+	}
 	if name == "help" {
 		return helpText, nil, nil
 	}
@@ -45,10 +48,10 @@ func (s *Service) HandleCommand(ctx context.Context, inst db.SlackInstallation, 
 		})
 		return "Delete your current conversation?", b, err
 	}
-	if name == "study" && strings.TrimSpace(c.Text) == "" {
-		return "Usage: /study <what you want to study>", nil, nil
+	if name == "to-do" && strings.TrimSpace(c.Text) == "" {
+		return "Usage: /to-do <what you want to study>", nil, nil
 	}
-	if name != "study" && name != "new" {
+	if name != "to-do" && name != "new" {
 		return "Unknown command. " + helpText, nil, nil
 	}
 	cl, err := s.session(inst)
@@ -68,10 +71,7 @@ func (s *Service) HandleCommand(ctx context.Context, inst db.SlackInstallation, 
 		}
 		return "Your next message starts a new conversation.", nil, nil
 	}
-	if inst.DraftingAgentID == nil {
-		return "Slack has no drafting agent yet. Ask the workspace owner to pick one.", nil, nil
-	}
-	id, err := s.Drafter.SlackDraft(ctx, inst.WorkspaceID, user, DraftIn{AgentID: *inst.DraftingAgentID, Prompt: strings.TrimSpace(c.Text), Priority: "none"})
+	id, err := s.Drafter.SlackDraft(ctx, inst.WorkspaceID, user, DraftIn{Prompt: strings.TrimSpace(c.Text), Priority: "none"})
 	if err != nil {
 		var refused UserError
 		if errors.As(err, &refused) {

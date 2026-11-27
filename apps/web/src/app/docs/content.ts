@@ -310,11 +310,11 @@ For a study using the default built-in Teams, the **Stages** menu starts with no
 
 For a first attempt, prefer a small question with a deliverable you can inspect. If you use Create with agent, inspect what it produces rather than assuming every requested property was applied.
 
-To add a study you own to a workspace project, open the card's three-dot menu on the board and choose **Add to project**. Search for an existing project or choose **New project** to create and link one. You can also move the study to another project or remove the link.
+To add a study to a workspace project, open the card's three-dot menu and choose **Add to project**. Search for an existing project or choose **New project** to create and link one. You can also move the study to another project or remove the link.
 
 ## Save a study for later
 
-Open **New study**, describe the work, and choose one agent or Team. Set its stage if prompted, and optionally select a project. Select **To-do** from the stage picker. **Create To-do** shares the proposal with the workspace. Open the proposal to edit it. **Close** saves valid edits, and **Start study** saves them and starts work. To delete a To-do, use **Delete** in its card’s three-dot menu.
+Open **New study**, describe the work, and choose one agent or Team. Set its stage if prompted, and optionally select a project. Select **To-do** from the stage picker. **Create To-do** shares the proposal with the workspace. Open the proposal to edit it. **Close** saves valid edits, and **Start study** saves them and starts work. Workspace members can use **Add to project** or **Delete** in the three-dot menu on any To-do or study.
 
 Board and List show To-do, Grounding, Hypotheses, Experimentation, Validation, Done and Blocked in that order. **My Studies** shows your proposals. A project's Studies tab shows the proposals linked to it. Use **Create study** for attachments, dates, workflows or a scope covering multiple stages.
 
@@ -880,8 +880,7 @@ Slack lets members of a Slack workspace talk to Aristotle without opening the da
 2. Copy the Slack app manifest shown on the page with the Copy button.
 3. At api.slack.com, choose Create app from manifest, paste the manifest and install the app to your Slack workspace.
 4. Back in Lykeion, paste the bot token (it starts with xoxb-) and the app-level token (it starts with xapp-).
-5. Choose a drafting agent. It must be visible to the whole workspace, not archived, and assigned to a stage; it is the agent that /study runs.
-6. Save.
+5. Click Connect.
 
 Lykeion keeps both tokens sealed on the server and never shows them again. A Lykeion workspace has one Slack app. If you host Lykeion yourself, the server needs LYK_SECRET_KEY set before Slack is available.
 
@@ -903,7 +902,8 @@ Aristotle does not read Slack files yet. If your message has files it replies "A
 
 ## Commands
 
-- /study <request> drafts a study with the workspace's drafting agent on your machine and sends you the link in a DM when it is ready. Review the draft in Lykeion before you start it; see [studies](/docs/studies/).
+- /to-do <request> asks Aristotle to draft a study on your machine. Aristotle saves the draft in To-do and sends you a link to Studies in a DM. Review the draft and start it when you're ready. See [studies](/docs/studies/).
+- If your Slack app was installed with an earlier manifest, its registered command may still be /study. Rename the command to /to-do in the Slack app’s Slash Commands settings to update the name Slack displays.
 - /new starts a new conversation.
 - /clear deletes the current DM conversation after you confirm.
 - /help lists the commands.
@@ -927,9 +927,9 @@ Connect a GitHub account or organization to see its pull requests on your [studi
 
 ## Connect GitHub
 
-1. As the workspace owner, open Settings → Connections → Code and choose **Connect GitHub**. To install the app on another account, choose **Add account or organization**. If the app is already installed, choose **Connect existing installation**, paste its GitHub settings URL, and select **Authorize installation**. Use \`https://github.com/settings/installations/<id>\` for a personal installation or \`https://github.com/organizations/<login>/settings/installations/<id>\` for an organization.
+1. As the workspace owner, open Settings → Connections → Code and choose **Connect GitHub**. To install the app on another account, choose **Add account or organization**.
 2. From the desktop app, sign in to Lykeion in your system browser with the same owner account, then use **Continue to GitHub** in the desktop app.
-3. For a new installation, select the GitHub account or organization and the repositories to share. Authorize the app on GitHub for either connection method. For a personal installation, authorize as the GitHub account that owns it. For an organization installation, you need admin permission on every repository included in the installation.
+3. For a new installation, select the GitHub account or organization and the repositories to share. Authorize the app on GitHub. For a personal installation, authorize as the GitHub account that owns it. For an organization installation, you need admin permission on every repository included in the installation.
 4. Setup finishes in the browser, where Lykeion shows the result. If your browser has another workspace open, the success notice names the workspace where you started setup. Use **Open** followed by that workspace's name if the action is available. Settings → Connections → Code shows the connected account and the member who connected it. The desktop app updates this panel automatically.
 
 If the authorizing GitHub account fails the ownership check, Lykeion shows “You don't control this GitHub installation. Ask an owner or admin of the account to connect it.” An organization installation must include at least one repository. If it has none, Lykeion shows “Select at least one repository on GitHub, then connect again.”
@@ -948,7 +948,7 @@ To unlink it, open the row's actions menu and choose **Remove from study**. Lyke
 
 ## Read a pull request row
 
-Each row opens the pull request on GitHub and shows its repository, number, title, author, state, lines added and deleted, and files changed. States are **Open**, **Draft**, **Merged** and **Closed**. Open and draft pull requests can show whether checks passed, failed or are still running, along with mergeability when GitHub reports it. A **stale** label means Lykeion is showing the last available result. Merged and closed rows show the final state without checks or mergeability.
+Each row opens the pull request on GitHub and shows its repository, number, title, author, state, lines added and deleted, and files changed. States are **Open**, **Draft**, **Merged** and **Closed**. Open and draft pull requests can show check results and warnings when GitHub reports conflicts, blockers, or that the branch is behind. A **stale** label means Lykeion is showing the last available result. Merged and closed rows show the final state without checks or merge warnings.
 
 ## Disconnect or uninstall
 

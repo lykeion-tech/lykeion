@@ -2,30 +2,20 @@
 import { computed, onUnmounted, ref } from 'vue';
 import Modal from '../../../ui/Modal.vue';
 import Icon from '../../../ui/Icon.vue';
-import SelectPicker from '../../../ui/SelectPicker.vue';
-import { useAgents } from '../../../api/queries';
 import { useSlackMutations } from '../../../api/library';
 import { workspaceId } from '../../../api/session';
 import { notify } from '../../../state/notice';
 import { slackManifest } from '../slack-manifest';
 
-const props = defineProps<{ mode: 'connect' | 'manage'; agentId?: string | null }>();
+defineProps<{ mode: 'connect' | 'manage' }>();
 const emit = defineEmits<{ close: [] }>();
-const agents = useAgents();
 const mutations = useSlackMutations();
-// The server re-validates: workspace-visible, not archived, not Aristotle, has a stage.
-const usable = computed(() =>
-  (agents.data.value ?? []).filter(
-    (a) =>
-      a.visibility === 'workspace' && !a.archived_at && a.built_in_key !== 'aristotle' && a.stage,
-  ),
-);
 const botToken = ref(''),
   appToken = ref(''),
-  agent = ref(props.agentId ?? ''),
   busy = ref(false),
   error = ref('');
 const manifest = slackManifest();
+const copied = ref(false);
 const steps = [
   'At api.slack.com/apps choose Create New App, then From a manifest, and paste this manifest.',
   'Install the app to your Slack workspace and copy its Bot User OAuth Token.',
@@ -61,30 +51,28 @@ const connect = () =>
       mutations.connectSlack({
         bot_token: botToken.value.trim(),
         app_token: appToken.value.trim(),
-        drafting_agent_id: agent.value,
       }),
     'Slack connected.',
   );
-const save = () => run(() => mutations.updateSlack(agent.value), 'Drafting agent saved.');
 function disconnect() {
   if (!confirm('Disconnect Slack? People in Slack can no longer reach Aristotle.')) return;
   void run(() => mutations.disconnectSlack(), 'Slack disconnected.');
 }
 async function copy() {
+  copied.value = false;
   try {
     await navigator.clipboard.writeText(manifest);
-    notify('Copied.');
+    copied.value = true;
   } catch {
     error.value = 'Could not access your clipboard.';
   }
 }
-const ready = computed(
-  () => usable.value.some((a) => a.id === agent.value) && (props.mode === 'manage' || (botToken.value.trim() && appToken.value.trim())),
-);
+const ready = computed(() => Boolean(botToken.value.trim() && appToken.value.trim()));
 </script>
 <template>
   <Modal
     v-slot="{ close }"
+    class="slack-modal"
     :title="mode === 'connect' ? 'Connect Slack' : 'Manage Slack'"
     @close="emit('close')"
   >
@@ -101,7 +89,9 @@ const ready = computed(
             {{ step }}
             <div v-if="i === 0" class="manifest">
               <textarea readonly rows="8" aria-label="Slack app manifest" :value="manifest" />
-              <button class="button" @click="copy"><Icon name="copy" :size="14" />Copy</button>
+              <button class="button" @click="copy">
+                <Icon name="copy" :size="14" />{{ copied ? 'Copied' : 'Copy' }}
+              </button>
             </div>
           </li>
         </ol>
@@ -127,20 +117,6 @@ const ready = computed(
               @input="appToken = ($event.target as HTMLInputElement).value"
           /></label>
         </template>
-        <label class="field"
-          >Drafting agent<SelectPicker
-            ><select
-              aria-label="Drafting agent"
-              :value="agent"
-              :disabled="busy"
-              @change="agent = ($event.target as HTMLSelectElement).value"
-            >
-              <option value="" disabled>Choose an agent</option>
-              <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
-            </select></SelectPicker
-          ></label
-        >
-        <p class="hint">The agent that drafts studies from /study in Slack.</p>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       </div>
       <footer>
@@ -153,7 +129,7 @@ const ready = computed(
           Disconnect
         </button>
         <span class="spacer" />
-        <button class="button" @click="close">Cancel</button>
+        <button class="button" @click="close">{{ mode === 'connect' ? 'Cancel' : 'Close' }}</button>
         <button
           v-if="mode === 'connect'"
           class="button primary"
@@ -162,15 +138,15 @@ const ready = computed(
         >
           Connect
         </button>
-        <button v-else class="button primary" :disabled="busy || !ready" @click="save">Save</button>
       </footer>
     </section>
   </Modal>
 </template>
 <style scoped>
+.slack-modal {
+  width: 622px;
+}
 .slack-dialog {
-  width: 620px;
-  max-width: 100%;
   display: flex;
   flex-direction: column;
   max-height: calc(90vh - 2px);
@@ -237,10 +213,5 @@ footer {
   padding: 6px 10px;
   height: 32px;
   min-width: 0;
-}
-.hint {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 0;
 }
 </style>
