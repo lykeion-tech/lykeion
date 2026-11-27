@@ -11,6 +11,32 @@ type Highlight = {
 
 // Each release includes its own reviewed copy and feature illustration.
 const releases: Record<string, readonly Highlight[]> = {
+  '0.1.15': [
+    {
+      title: 'Draft a To-do from Slack',
+      description:
+        'Use /to-do in Slack to give Aristotle a research question. It saves the draft in your lab and sends you a link so you can review it before starting.',
+      icon: 'chat',
+      color: 'blue',
+      details: ['Slack /to-do', 'Aristotle drafts', 'Review in To-do'],
+    },
+    {
+      title: 'Organize studies together',
+      description:
+        'Workspace members can add a colleague’s To-do or study to a project, or delete it from the card’s menu. Both actions are available in Board and List.',
+      icon: 'folder',
+      color: 'green',
+      details: ['Workspace studies', 'Card actions', 'Shared projects'],
+    },
+    {
+      title: 'Browse skills installed on your machine',
+      description:
+        'Open Settings → Skills and choose Copy from runtime to browse local Claude Code and Codex skills. Valid skills still appear when another bundle can’t be imported.',
+      icon: 'plug',
+      color: 'violet',
+      details: ['Connected runtime', 'Installed skills', 'Workspace library'],
+    },
+  ],
   '0.1.14': [
     {
       title: 'Trace a measurement to its exact field',

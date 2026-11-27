@@ -62,7 +62,7 @@ func TestOwnerConnectsSlack(t *testing.T) {
 	if code := s.call(t, "PUT", "/api/slack", member, ws.ID, slackBody(agent), nil); code != 403 {
 		t.Fatalf("member put: %d", code)
 	}
-	if code := s.call(t, "PUT", "/api/slack", owner, ws.ID, slackBody(agent), nil); code != 200 {
+	if code := s.call(t, "PUT", "/api/slack", owner, ws.ID, map[string]string{"bot_token": testBot, "app_token": testApp}, nil); code != 200 {
 		t.Fatalf("owner put: %d", code)
 	}
 	req, _ := http.NewRequest("GET", s.URL+"/api/slack", nil)
@@ -244,18 +244,6 @@ func TestSlackIsolation(t *testing.T) {
 	}
 }
 
-func TestSlackDraftRefusesAnUnusableAgent(t *testing.T) {
-	s := newServer(t)
-	owner := s.signIn(t, "owner@lab.org")
-	ws := s.workspace(t, owner, "lab")
-	agent := s.stagedAgent(t, owner, ws.ID, "hypotheses")
-	s.mustUpdate(t, `UPDATE agent SET visibility='private' WHERE id=$1`, agent)
-	_, err := s.H.SlackDraft(t.Context(), uuid.MustParse(ws.ID), uuid.MustParse(s.userID(t, owner)), slack.DraftIn{AgentID: uuid.MustParse(agent), Prompt: "x"})
-	if _, ok := err.(slack.UserError); !ok {
-		t.Fatalf("want slack.UserError, got %v", err)
-	}
-}
-
 func TestSlackLinkRoute(t *testing.T) {
 	s := newServer(t)
 	useFakeSlack(t, s)
@@ -370,16 +358,60 @@ func TestSlackClearDeletesChatAndCancelsRun(t *testing.T) {
 	}
 }
 
-func TestSlackStudyRefusesArchivedAgent(t *testing.T) {
-	s, svc, inst, _, _, agent := slackCmdFixture(t)
-	s.mustUpdate(t, `UPDATE agent SET archived_at=now() WHERE id=$1`, agent)
-	text, _, err := svc.HandleCommand(t.Context(), inst, slack.Command{Name: "/study", Text: "x", User: "UOWNER", Channel: "C1"})
-	if err != nil || text != "choose an agent every member can use" {
+func TestSlackStudyRequiresTheResearchersRuntime(t *testing.T) {
+	s, svc, inst, _, _, _ := slackCmdFixture(t)
+	text, _, err := svc.HandleCommand(t.Context(), inst, slack.Command{Name: "/to-do", Text: "x", User: "UOWNER", Channel: "C1"})
+	if err != nil || text != "The agent's CLI is offline. Connect a machine and try again." {
 		t.Fatalf("%q %v", text, err)
 	}
 	var n int
 	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM slack_post`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("posts=%d %v", n, err)
+	}
+}
+
+func TestSlackStudyUsesAristotleAndSavesToTodo(t *testing.T) {
+	s, svc, inst, owner, ws, oldAgent := slackCmdFixture(t)
+	s.mustUpdate(t, `UPDATE agent SET archived_at=now() WHERE id=$1`, oldAgent)
+	personal := s.personalToken(t, owner)
+	if code := s.call(t, "POST", "/api/daemon/register", personal, "", map[string]any{"workspace_id": ws, "daemon_id": "slack-study", "harnesses": []string{"claude", "codex"}}, nil); code != 200 {
+		t.Fatalf("register: %d", code)
+	}
+	s.mustUpdate(t, `UPDATE runtime SET unhealthy_reason='cli_broken' WHERE workspace_id=$1 AND harness='claude'`, ws)
+	text, _, err := svc.HandleCommand(t.Context(), inst, slack.Command{Name: "/to-do", Text: "Study shade and heat", User: "UOWNER", Channel: "C1"})
+	if err != nil || text != "Drafting your study. I'll DM you the link." {
+		t.Fatalf("command: %q %v", text, err)
+	}
+	ctx := t.Context()
+	user := uuid.MustParse(s.userID(t, owner))
+	var request, run, agentOwner uuid.UUID
+	var agentKey, harness string
+	err = s.Env.Owner.QueryRow(ctx, `SELECT p.autoresearch_id, r.agent_run_id, a.owner_id, a.built_in_key, execution.harness
+		FROM slack_post p JOIN autoresearch_run r USING (workspace_id, autoresearch_id)
+		JOIN autoresearch ar ON (ar.workspace_id, ar.id) = (p.workspace_id, p.autoresearch_id)
+		JOIN agent a ON a.id=ar.assignee_id JOIN agent_run execution ON execution.id=r.agent_run_id
+		WHERE p.workspace_id=$1 AND p.kind='draft'`, ws).Scan(&request, &run, &agentOwner, &agentKey, &harness)
+	if err != nil || agentKey != "aristotle" || agentOwner != user || harness != "codex" {
+		t.Fatalf("draft run: %s %s %s %v", agentKey, agentOwner, harness, err)
+	}
+	const question = "How does shade affect neighborhood heat?"
+	err = s.H.Store.InWorkspace(ctx, uuid.MustParse(ws), user, func(tx *store.Tx) error {
+		_, err := s.H.Autoresearch.OpenCardForAgentRun(ctx, tx, run, "Shade and heat", question)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proposals struct{ Items []store.StudyProposal }
+	if code := s.call(t, "GET", "/api/study-proposals", owner, ws, nil, &proposals); code != 200 || len(proposals.Items) != 1 {
+		t.Fatalf("proposals: %d %+v", code, proposals)
+	}
+	p := proposals.Items[0]
+	if p.ID != request || p.OwnerID != user || p.Description != question || p.Stage != "grounding" || p.Assignee.Type != "team" {
+		t.Fatalf("proposal: %+v", p)
+	}
+	if n := s.count(t, `SELECT count(*) FROM card WHERE workspace_id=$1`, ws); n != 0 {
+		t.Fatalf("unexpected stage cards: %d", n)
 	}
 }
 

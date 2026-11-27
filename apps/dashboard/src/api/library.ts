@@ -288,10 +288,8 @@ export function useSlackMutations() {
     return out;
   };
   return {
-    connectSlack: (body: { bot_token: string; app_token: string; drafting_agent_id: string }) =>
+    connectSlack: (body: { bot_token: string; app_token: string }) =>
       done(ws.value, api('PUT', '/api/slack', body)),
-    updateSlack: (drafting_agent_id: string) =>
-      done(ws.value, api('PATCH', '/api/slack', { drafting_agent_id })),
     disconnectSlack: () => done(ws.value, api('DELETE', '/api/slack')),
     unlinkSlack: () => done(ws.value, api('DELETE', '/api/slack/binding')),
     linkSlack: (token: string, workspace: string) =>
@@ -343,14 +341,10 @@ export function useGitHubMutations() {
     await client.invalidateQueries({ queryKey: key });
   }
   return {
-    connectGitHub: (installationUrl?: string) =>
-      api<{ url: string }>(
-        'POST',
-        installationUrl === undefined ? '/api/github/connect' : '/api/github/connect/existing',
-        installationUrl === undefined ? undefined : { installation_url: installationUrl },
-        undefined,
-        { workspace: ws.value },
-      ),
+    connectGitHub: () =>
+      api<{ url: string }>('POST', '/api/github/connect', undefined, undefined, {
+        workspace: ws.value,
+      }),
     retryGitHubImport: (id: number) =>
       change(keys.github(ws.value), 'POST', `/api/github/connections/${id}/retry`),
     setGitHubAutoLink: (auto_link: boolean) =>

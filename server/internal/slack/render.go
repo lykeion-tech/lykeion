@@ -22,9 +22,8 @@ func link(publicURL string, r labmemory.DisplayRef) string {
 	return "<" + appURL(publicURL) + p + "|" + strings.NewReplacer("|", "¦").Replace(mrkdwnEscaper.Replace(r.Title)) + ">"
 }
 
-// Render turns a checked answer into Slack mrkdwn: one paragraph per
-// statement with inline citation links, then the evidence the answer drew on.
-func Render(ss []labmemory.DisplayStatement, ee []labmemory.DisplayRef, publicURL string) string {
+// Render turns a checked answer into Slack mrkdwn with inline citation links.
+func Render(ss []labmemory.DisplayStatement, publicURL string) string {
 	var paras []string
 	for _, s := range ss {
 		p := mrkdwnEscaper.Replace(s.Text)
@@ -32,17 +31,6 @@ func Render(ss []labmemory.DisplayStatement, ee []labmemory.DisplayRef, publicUR
 			p += " " + link(publicURL, c)
 		}
 		paras = append(paras, p)
-	}
-	seen := map[string]bool{}
-	var src []string
-	for _, e := range ee {
-		if p := labmemory.RefPath(e); p != "" && !seen[p] {
-			seen[p] = true
-			src = append(src, link(publicURL, e))
-		}
-	}
-	if len(src) > 0 {
-		paras = append(paras, "Sources: "+strings.Join(src, ", "))
 	}
 	out := strings.Join(paras, "\n\n")
 	if utf8.RuneCountInString(out) <= maxSlackText {

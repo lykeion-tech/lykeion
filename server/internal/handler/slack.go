@@ -88,12 +88,12 @@ func (h *H) putSlack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		BotToken        string    `json:"bot_token"`
-		AppToken        string    `json:"app_token"`
-		DraftingAgentID uuid.UUID `json:"drafting_agent_id"`
+		BotToken        string     `json:"bot_token"`
+		AppToken        string     `json:"app_token"`
+		DraftingAgentID *uuid.UUID `json:"drafting_agent_id"`
 	}
-	if err := readJSON(r, &in); err != nil || in.BotToken == "" || in.AppToken == "" || in.DraftingAgentID == uuid.Nil {
-		writeErr(w, 400, "bot token, app token and drafting agent are required")
+	if err := readJSON(r, &in); err != nil || in.BotToken == "" || in.AppToken == "" {
+		writeErr(w, 400, "bot token and app token are required")
 		return
 	}
 	if !h.slackKeyed(w) {
@@ -129,8 +129,10 @@ func (h *H) putSlack(w http.ResponseWriter, r *http.Request) {
 		case !errors.Is(err, pgx.ErrNoRows):
 			return err
 		}
-		if err := DraftingAgentUsable(ctx, tx, ws, in.DraftingAgentID); err != nil {
-			return err
+		if in.DraftingAgentID != nil {
+			if err := DraftingAgentUsable(ctx, tx, ws, *in.DraftingAgentID); err != nil {
+				return err
+			}
 		}
 		bot, err := h.Slack.Seal(ws, id, "bot", in.BotToken)
 		if err != nil {
@@ -144,11 +146,11 @@ func (h *H) putSlack(w http.ResponseWriter, r *http.Request) {
 		if id == old.ID {
 			inst, err = tx.Q.ReconnectSlackInstallation(ctx, db.ReconnectSlackInstallationParams{ID: id, TeamID: identity.TeamID,
 				TeamName: identity.TeamName, BotUserID: identity.BotUserID, BotTokenCiphertext: bot, AppTokenCiphertext: app,
-				DraftingAgentID: &in.DraftingAgentID, InstalledBy: user})
+				DraftingAgentID: in.DraftingAgentID, InstalledBy: user})
 		} else {
 			inst, err = tx.Q.CreateSlackInstallation(ctx, db.CreateSlackInstallationParams{ID: id, AppID: identity.AppID, TeamID: identity.TeamID,
 				TeamName: identity.TeamName, BotUserID: identity.BotUserID, BotTokenCiphertext: bot, AppTokenCiphertext: app,
-				DraftingAgentID: &in.DraftingAgentID, InstalledBy: user})
+				DraftingAgentID: in.DraftingAgentID, InstalledBy: user})
 		}
 		if err != nil {
 			return err
@@ -277,14 +279,9 @@ func (h *H) deleteSlackBinding(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// SlackDraft queues a study draft asked for in Slack. The drafting agent is
-// checked on every call; there is no fallback.
+// SlackDraft asks the researcher's Aristotle to save an idle study proposal.
 func (h *H) SlackDraft(ctx context.Context, ws, user uuid.UUID, in slack.DraftIn) (uuid.UUID, error) {
-	err := h.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error { return DraftingAgentUsable(ctx, tx, ws, in.AgentID) })
-	var id uuid.UUID
-	if err == nil {
-		id, err = h.DraftStudy(ctx, ws, user, StudyDraftIn{AgentID: in.AgentID, Prompt: in.Prompt, Priority: in.Priority})
-	}
+	id, err := h.DraftStudy(ctx, ws, user, StudyDraftIn{Prompt: in.Prompt, Priority: in.Priority, saveToTodo: true})
 	var refused cardInputError
 	if errors.As(err, &refused) {
 		return uuid.Nil, slack.UserError(refused)

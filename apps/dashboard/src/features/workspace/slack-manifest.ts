@@ -10,8 +10,8 @@ features:
     display_name: ${name}
     always_online: true
   slash_commands:
-    - command: /study
-      description: Draft a study from a question
+    - command: /to-do
+      description: Draft a study for To-do
       usage_hint: "[question]"
       should_escape: false
     - command: /new

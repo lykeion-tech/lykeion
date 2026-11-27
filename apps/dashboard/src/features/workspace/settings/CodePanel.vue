@@ -32,8 +32,6 @@ const connectedWorkspace = computed(() =>
 );
 const busy = ref(false);
 const continuation = ref('');
-const existingForm = ref(false);
-const installationUrl = ref('');
 const route = useRoute();
 const router = useRouter();
 watch(
@@ -58,8 +56,6 @@ watch(
   workspaceId,
   () => {
     visit++;
-    existingForm.value = false;
-    installationUrl.value = '';
     continuation.value = '';
     error.value = '';
     completed.value = false;
@@ -85,17 +81,18 @@ async function act(operation: () => Promise<void>) {
     if (started === visit) busy.value = false;
   }
 }
-async function connect(existing?: string) {
+async function connect() {
   const started = visit;
   const workspace = workspaceId.value;
-  const { url } = await connectGitHub(existing);
+  const { url } = await connectGitHub();
   if (started !== visit || workspace !== workspaceId.value || !owner.value) return;
   const target = new URL(url);
-  const validPath =
-    existing === undefined
-      ? /^\/apps\/[\w-]+\/installations\/new$/.test(target.pathname)
-      : target.pathname === '/login/oauth/authorize';
-  if (target.origin !== 'https://github.com' || target.username || target.password || !validPath)
+  if (
+    target.origin !== 'https://github.com' ||
+    target.username ||
+    target.password ||
+    !/^\/apps\/[\w-]+\/installations\/new$/.test(target.pathname)
+  )
     throw new Error('Invalid GitHub installation link.');
   if (window.lykeionDesktop) continuation.value = url;
   else window.location.assign(url);
@@ -108,7 +105,7 @@ function disconnect(id: number, login: string) {
 <template>
   <section aria-label="GitHub settings">
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-    <p v-if="completed" class="type-label" role="status">
+    <p v-if="completed" class="type-label connection-status" role="status">
       <template v-if="connectedWorkspace">
         GitHub connected to {{ connectedWorkspace.name }}.
         <button
@@ -139,6 +136,7 @@ function disconnect(id: number, login: string) {
           >
           <small v-else-if="settings && !connections.length">Not connected</small>
           <small v-else-if="github.isPending.value" role="status">Loading…</small>
+          <small>Only the workspace owner can connect a GitHub App.</small>
         </span>
         <button
           v-if="owner && settings?.configured"
@@ -148,33 +146,6 @@ function disconnect(id: number, login: string) {
         >
           {{ connections.length ? 'Add account or organization' : 'Connect GitHub' }}
         </button>
-      </div>
-      <div v-if="owner && settings?.configured" class="app-row">
-        <button
-          class="text-button"
-          :aria-expanded="existingForm"
-          :disabled="busy"
-          @click="existingForm = !existingForm"
-        >
-          Connect existing installation
-        </button>
-        <form
-          v-if="existingForm"
-          class="installation-form"
-          @submit.prevent="act(() => connect(installationUrl.trim()))"
-        >
-          <label for="github-installation-url">GitHub installation settings URL</label>
-          <input
-            id="github-installation-url"
-            type="url"
-            required
-            :value="installationUrl"
-            @input="installationUrl = ($event.target as HTMLInputElement).value"
-          />
-          <button class="button" :disabled="busy || !installationUrl.trim()">
-            Authorize installation
-          </button>
-        </form>
       </div>
       <div v-if="owner && continuation" class="app-row">
         <span class="name"
@@ -236,6 +207,9 @@ function disconnect(id: number, login: string) {
 </template>
 <style scoped src="./integration-settings.css"></style>
 <style scoped>
+.connection-status {
+  margin-block-end: 12px;
+}
 .setting-box + .setting-box {
   margin-top: 16px;
 }
@@ -250,18 +224,6 @@ function disconnect(id: number, login: string) {
 }
 .app-row .name {
   flex: 1 1 150px;
-}
-.installation-form {
-  display: grid;
-  gap: 6px;
-  flex: 1 1 220px;
-  min-width: 0;
-}
-.installation-form input {
-  min-width: 0;
-}
-.installation-form .button {
-  justify-self: start;
 }
 .auto-link {
   width: 32px;

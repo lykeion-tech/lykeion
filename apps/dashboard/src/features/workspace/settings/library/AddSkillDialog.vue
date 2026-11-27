@@ -152,7 +152,7 @@ async function submit() {
               placeholder="e.g. review-helper"
               :disabled="busy"
               autofocus
-            /><small>Must be unique within the workspace.</small></label
+            /></label
           ><label class="field"
             >Description<textarea
               v-model="description"
@@ -214,10 +214,6 @@ async function submit() {
           @created="emit('created', $event)"
           @close="close"
         />
-        <p class="workspace-note">
-          Skills you add are shared with the whole workspace. Their scripts may run on colleagues’
-          machines when used by agents.
-        </p>
         <p v-if="error" role="alert" class="inline-error import-error">{{ error }}</p>
         <p v-if="busy" role="status">
           {{ method === 'manual' ? 'Creating skill…' : 'Importing skill…' }}
@@ -329,20 +325,10 @@ async function submit() {
   height: 74px;
   resize: none;
 }
-.field small,
 .hint {
   font-size: 13px;
   color: var(--muted);
   margin: 6px 0 0;
-  line-height: 1.5;
-}
-.field small {
-  display: block;
-}
-.workspace-note {
-  font-size: 13px;
-  color: var(--muted);
-  margin: 18px 0 0;
   line-height: 1.5;
 }
 .add-foot {

@@ -34,10 +34,8 @@ func (s *Service) Report(ctx context.Context, tx *store.Tx, ar uuid.UUID, text s
 		map[string]any{"run_id": r.ID, "autoresearch_id": ap.ID})
 }
 
-// OpenCardForAgentRun opens a study for a run_only agent run, owned by its run's
-// acting user and under the same duplicate guard as create_card. The agent the
-// run works as works the study; a run with no assigned agent leaves the study
-// to the built-in Teams.
+// OpenCardForAgentRun opens a study for the run's acting user. Slack drafts
+// instead save a proposal for that user to start later.
 func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid.UUID, title, question string) (db.Card, error) {
 	if err := lockWorkspace(ctx, tx); err != nil {
 		return db.Card{}, err
@@ -60,6 +58,28 @@ func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid
 		}
 		return db.Card{}, ErrAlreadyActive
 	}
+	if draft != nil && draft.SaveToTodo {
+		pack, err := tx.Q.BuiltInStageTeam(ctx, db.BuiltInStageTeamParams{WorkspaceID: tx.WS, Stage: ap.ScopeFrom})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return db.Card{}, err
+		}
+		assignee := store.ProposalAssignee{Type: "team"}
+		if err == nil {
+			assignee.PackID = &pack.ID
+		}
+		// Use the request ID as the proposal ID, and complete both in the same transaction.
+		p, err := tx.WriteStudyProposal(ctx, ap.ID, r.ActingUserID, 0, store.ProposalContent{
+			Title: title, Description: question, Stage: ap.ScopeFrom, Priority: draft.Priority, ProjectID: draft.ResearchID,
+			Assignee: assignee,
+		})
+		if err != nil {
+			return db.Card{}, err
+		}
+		if err := tx.CompleteStudyDraft(ctx, ap.ID, nil, *draft); err != nil {
+			return db.Card{}, err
+		}
+		return db.Card{}, tx.Emit(ctx, "study_proposal.saved", nil, store.User(r.ActingUserID), map[string]any{"proposal_id": p.ID, "revision": p.Revision})
+	}
 	var agent *uuid.UUID
 	if ap.AssigneeType != nil {
 		a, err := s.assignedAgent(ctx, tx, ap, r.ActingUserID)
@@ -76,7 +96,7 @@ func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid
 		return card, err
 	}
 	if draft != nil {
-		if err := tx.CompleteStudyDraft(ctx, ap.ID, card.ID, *draft); err != nil {
+		if err := tx.CompleteStudyDraft(ctx, ap.ID, &card.ID, *draft); err != nil {
 			return db.Card{}, err
 		}
 		card.ResearchID = draft.ResearchID

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/autoresearch"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/fence"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/store"
@@ -25,6 +26,7 @@ type StudyDraftIn struct {
 	StartDate  *time.Time `json:"start_date"`
 	Deadline   *time.Time `json:"deadline"`
 	Priority   string     `json:"priority"`
+	saveToTodo bool
 }
 
 // createStudyDraft queues a single, agent-authored study without making a recurring rule.
@@ -116,17 +118,34 @@ func (h *H) draftStudy(ctx context.Context, tx *store.Tx, ws, user uuid.UUID, in
 		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
 			return err
 		}
-		if err := checkStudyAgent(ctx, tx, ws, user, in.AgentID, "", ""); err != nil {
-			return err
+		var agent db.Agent
+		var err error
+		if in.saveToTodo {
+			agent, err = tx.Q.EnsureAristotle(ctx)
+		} else {
+			if err := checkStudyAgent(ctx, tx, ws, user, in.AgentID, "", ""); err != nil {
+				return err
+			}
+			agent, err = tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: ws, ID: in.AgentID})
 		}
-		agent, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: ws, ID: in.AgentID})
 		if err != nil {
 			return err
 		}
-		if agent.Stage == "" {
+		stage := agent.Stage
+		if in.saveToTodo {
+			stage = board.Grounding
+		}
+		if stage == "" {
 			return cardInputError("this agent has no stage")
 		}
-		online, err := tx.Q.HasOnlineRuntime(ctx, db.HasOnlineRuntimeParams{WorkspaceID: ws, OwnerID: user, Harness: agent.Harness})
+		var online bool
+		if in.saveToTodo {
+			var harness string
+			harness, err = tx.Q.SlackAristotleHarness(ctx, user)
+			online = harness != ""
+		} else {
+			online, err = tx.Q.HasOnlineRuntime(ctx, db.HasOnlineRuntimeParams{WorkspaceID: ws, OwnerID: user, Harness: agent.Harness})
+		}
 		if err != nil {
 			return err
 		}
@@ -139,12 +158,16 @@ func (h *H) draftStudy(ctx context.Context, tx *store.Tx, ws, user uuid.UUID, in
 			}
 		}
 		typ := "agent"
-		description := "Create exactly one study from the request below. Draft a clear title and a faithful research question without inventing facts. Hand in the study as the only entry of `new_studies`, with its title and question, and say in your report that it was created. Do not perform the research yourself.\n\n" + fence.Untrusted("Researcher's request", in.Prompt)
-		ap, err := tx.Q.CreateAutoresearch(ctx, db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: "Study draft", Description: description, ExecutionMode: "run_only", AssigneeType: &typ, AssigneeID: &in.AgentID, ScopeFrom: agent.Stage, ScopeTo: agent.Stage})
+		instruction := "Create exactly one study from the request below. Draft a clear title and a faithful research question without inventing facts. Hand in the study as the only entry of `new_studies`, with its title and question, and say in your report that it was created. Do not perform the research yourself."
+		if in.saveToTodo {
+			instruction = "You are Aristotle. Draft one study for To-do using only the researcher's request below. Return a clear title and a faithful research question as the only entry of `new_studies`. Do not perform the research."
+		}
+		description := instruction + "\n\n" + fence.Untrusted("Researcher's request", in.Prompt)
+		ap, err := tx.Q.CreateAutoresearch(ctx, db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: "Study draft", Description: description, ExecutionMode: "run_only", AssigneeType: &typ, AssigneeID: &agent.ID, ScopeFrom: stage, ScopeTo: stage})
 		if err != nil {
 			return err
 		}
-		if err := tx.CreateStudyDraft(ctx, ap.ID, store.StudyDraft{ResearchID: in.ResearchID, StartDate: in.StartDate, Deadline: in.Deadline, Priority: in.Priority}); err != nil {
+		if err := tx.CreateStudyDraft(ctx, ap.ID, store.StudyDraft{ResearchID: in.ResearchID, StartDate: in.StartDate, Deadline: in.Deadline, Priority: in.Priority, SaveToTodo: in.saveToTodo}); err != nil {
 			return err
 		}
 		apID = ap.ID

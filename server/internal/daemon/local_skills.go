@@ -189,6 +189,7 @@ func listLocalSkills(harness, home, codexHome string) ([]localSkillSummary, erro
 	}
 	out := []localSkillSummary{}
 	seen := map[string]bool{}
+	var firstInvalid error
 	for _, root := range roots {
 		visited := map[string]bool{}
 		var walk func(string, int) error
@@ -232,11 +233,14 @@ func listLocalSkills(harness, home, codexHome string) ([]localSkillSummary, erro
 					if seen[key] {
 						continue
 					}
+					seen[key] = true
 					_, summary, err := loadLocalSkill(harness, home, codexHome, key)
 					if err != nil {
-						return fmt.Errorf("skill %q: %w", key, err)
+						if firstInvalid == nil {
+							firstInvalid = fmt.Errorf("skill %q: %w", key, err)
+						}
+						continue
 					}
-					seen[key] = true
 					out = append(out, summary)
 				} else if errors.Is(err, os.ErrNotExist) {
 					if err = walk(child, depth+1); err != nil {
@@ -251,6 +255,9 @@ func listLocalSkills(harness, home, codexHome string) ([]localSkillSummary, erro
 		if err = walk(root.path, 0); err != nil {
 			return nil, err
 		}
+	}
+	if len(out) == 0 && firstInvalid != nil {
+		return nil, firstInvalid
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out, nil

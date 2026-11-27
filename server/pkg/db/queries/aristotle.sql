@@ -63,6 +63,14 @@ UPDATE coresearch_chat SET cli= @harness WHERE workspace_id=app_workspace() AND 
 -- name: AristotleRuntimeAvailable :one
 SELECT EXISTS(SELECT 1 FROM runtime WHERE workspace_id=app_workspace() AND owner_id=app_user() AND harness= @harness AND status='online' AND last_seen_at>now()-interval '60 seconds' AND (NOT @require_healthy::boolean OR unhealthy_reason IS NULL) AND (sqlc.narg(daemon_id)::text IS NULL OR daemon_id=sqlc.narg(daemon_id)))::boolean;
 
+-- name: SlackAristotleHarness :one
+SELECT CASE WHEN bool_or(harness='claude') THEN 'claude'
+            WHEN bool_or(harness='codex') THEN 'codex'
+            ELSE '' END::text
+FROM runtime WHERE workspace_id=app_workspace() AND owner_id = @owner_id
+  AND harness IN ('claude', 'codex') AND status='online'
+  AND last_seen_at>now()-interval '60 seconds' AND unhealthy_reason IS NULL;
+
 -- name: SetAristotleRunModel :one
 UPDATE agent_run SET requested_model= @model WHERE workspace_id=app_workspace() AND id= @id AND kind='coresearch' RETURNING *;
 

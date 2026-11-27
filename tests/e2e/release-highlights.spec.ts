@@ -38,9 +38,9 @@ for (const { renderer, previous } of [
     expect(bounds.y + bounds.height / 2).toBeCloseTo(viewport.height / 2, 0);
 
     const titles = [
-      'Trace a measurement to its exact field',
-      'Check outcomes against a frozen comparison',
-      'Preserve each replay’s measurements',
+      'Draft a To-do from Slack',
+      'Organize studies together',
+      'Browse skills installed on your machine',
     ];
     for (const [index, title] of titles.entries()) {
       await expect(dialog.getByRole('heading', { name: title })).toBeVisible();

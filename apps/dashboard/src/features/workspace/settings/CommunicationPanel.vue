@@ -93,7 +93,6 @@ async function unlink() {
       v-if="dialog"
       :key="workspaceId + dialog"
       :mode="dialog"
-      :agent-id="s?.drafting_agent_id"
       @close="dialog = null"
     />
   </section>

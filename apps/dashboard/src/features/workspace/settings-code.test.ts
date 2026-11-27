@@ -82,6 +82,7 @@ it('shows one GitHub row and lets an owner change auto-link', async () => {
 it('shows members connection details and disables editing', async () => {
   const { root } = await mount('member', true, [connection]);
   for (const label of [
+    'Only the workspace owner can connect a GitHub App.',
     'Connected · lab · by Ada',
     'Importing open pull requests…',
     'Suspended on GitHub',
@@ -207,34 +208,14 @@ it('offers no workspace switch for an unknown callback ID', async () => {
   await vi.waitFor(() => expect(router.currentRoute.value.query).toEqual({}));
 });
 
-it('authorizes an existing installation through the desktop continuation', async () => {
-  vi.stubGlobal('window', { lykeionDesktop: {} });
-  const { root } = await mount();
-  const button = all(root).find(
-    (n) => n.tag === 'button' && textOf(n).trim() === 'Connect existing installation',
-  );
-  expect(button).toBeDefined();
-  (button!.props.onClick as () => void)();
-  await nextTick();
-  const settingsURL = 'https://github.com/settings/installations/42';
-  const input = all(root).find((n) => n.tag === 'input')!;
-  (input.props.onInput as (e: unknown) => void)({ target: { value: settingsURL } });
-  const url = 'https://github.com/login/oauth/authorize?client_id=client&state=signed';
-  call.mockResolvedValueOnce({ url });
-  await (all(root).find((n) => n.tag === 'form')!.props.onSubmit as (e: unknown) => Promise<void>)({
-    preventDefault() {},
-  });
-  await nextTick();
-  expect(
-    call.mock.calls.some(
-      ([method, path, body]) =>
-        method === 'POST' &&
-        path === '/api/github/connect/existing' &&
-        body.installation_url === settingsURL,
-    ),
-  ).toBe(true);
-  expect(all(root).find((n) => n.tag === 'a')?.props.href).toBe(url);
-});
+it.each([false, true])(
+  'offers only the standard connection flow when a connection exists: %s',
+  async (connected) => {
+    const { root } = await mount('owner', true, connected ? [connection] : []);
+    expect(textOf(root)).not.toContain('Connect existing installation');
+    expect(textOf(root)).toContain(connected ? 'Add account or organization' : 'Connect GitHub');
+  },
+);
 
 it.each(['owner', 'member'])(
   'shows the failed import for role %s and restricts retry to owners',

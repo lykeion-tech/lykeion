@@ -200,11 +200,11 @@ func TestAuthFailed(t *testing.T) {
 
 func TestToCommand(t *testing.T) {
 	var sc slackgo.SlashCommand
-	raw := `{"command":"/study","text":"sleep and memory","user_id":"U1","channel_id":"D1","response_url":"https://hooks.slack.test/r/1","api_app_id":"A1"}`
+	raw := `{"command":"/to-do","text":"sleep and memory","user_id":"U1","channel_id":"D1","response_url":"https://hooks.slack.test/r/1","api_app_id":"A1"}`
 	if err := json.Unmarshal([]byte(raw), &sc); err != nil {
 		t.Fatal(err)
 	}
-	want := Command{Name: "/study", Text: "sleep and memory", User: "U1", Channel: "D1", ResponseURL: "https://hooks.slack.test/r/1"}
+	want := Command{Name: "/to-do", Text: "sleep and memory", User: "U1", Channel: "D1", ResponseURL: "https://hooks.slack.test/r/1"}
 	if got := toCommand(sc); got != want {
 		t.Fatalf("%+v", got)
 	}

@@ -442,9 +442,9 @@ func TestADeleteThatRollsBackKeepsTheOutputs(t *testing.T) {
 	if code, out := l.postOutput(t, leader.token, "result.npz", 1<<10, nil); code != 201 {
 		t.Fatalf("upload %d %v", code, out)
 	}
-	member := l.s.member(t, l.jwt, l.ws, "b@lab.org", "member")
-	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID, member, l.ws, nil, nil); code != 403 {
-		t.Fatalf("a non-owner deleted the study: %d", code)
+	outsider := l.s.signIn(t, "b@lab.org")
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID, outsider, l.ws, nil, nil); code != 404 {
+		t.Fatalf("a non-member reached the study: %d", code)
 	}
 	if n := l.outputBlobs(t); n != 1 {
 		t.Fatalf("%d output blobs after a refused delete", n)

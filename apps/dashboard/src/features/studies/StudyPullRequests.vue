@@ -27,7 +27,6 @@ const chipClasses: Record<string, string> = {
   closed: 'chip-blocked',
 };
 const mergeLabels: Record<string, string> = {
-  mergeable: 'Mergeable',
   conflicting: 'Conflicts',
   blocked: 'Blocked',
   behind: 'Behind',

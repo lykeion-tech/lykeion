@@ -9,18 +9,10 @@ import { invalidationsFor } from '../../api/realtime';
 import { keys } from '../../api/keys';
 
 const call = vi.fn();
-vi.mock('../../ui/SelectPicker.vue', () => ({ default: { render() { return h('div', (this as any).$slots.default?.()); } } }));
 vi.mock('../../api/client', () => ({ api: (...a: unknown[]) => call(...a), ApiError: Error }));
 
 let role = 'owner';
 let slack: Record<string, unknown> = {};
-const agents = [
-  { id: 'a1', name: 'Drafter', stage: 'grounding', visibility: 'workspace', archived_at: null },
-  { id: 'a2', name: 'Secret', stage: 'grounding', visibility: 'private', archived_at: null },
-  { id: 'a3', name: 'Old', stage: 'grounding', visibility: 'workspace', archived_at: 'x' },
-  { id: 'a4', name: 'Aristotle', stage: 'grounding', visibility: 'workspace', archived_at: null, built_in_key: 'aristotle' },
-  { id: 'a5', name: 'Stageless', stage: '', visibility: 'workspace', archived_at: null },
-];
 async function settle() {
   for (let i = 0; i < 6; i++) {
     await nextTick();
@@ -36,7 +28,6 @@ beforeEach(() => {
   slack = { connected: false, drafting_agent_id: null, my_binding: null };
   call.mockReset().mockImplementation(async (method: string, path: string) => {
     if (method === 'GET' && path === '/api/workspaces') return [{ id: 'w', role }];
-    if (method === 'GET' && path === '/api/agents') return agents;
     if (method === 'GET' && path === '/api/slack') return slack;
     return undefined;
   });
@@ -93,7 +84,26 @@ it('offers Reconnect when the installation was revoked', async () => {
   expect(button(root, 'Reconnect')).toBeDefined();
 });
 
-it('connects with both tokens, lists only usable agents and clears the inputs', async () => {
+it('shows Copied on the manifest button only after a successful clipboard write', async () => {
+  const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('blocked'));
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  const root = await mount();
+  (button(root, 'Connect')!.props.onClick as () => void)();
+  await tick();
+  const copy = button(root, 'Copy')!.props.onClick as () => Promise<void>;
+
+  await copy();
+  await nextTick();
+  expect(writeText).toHaveBeenCalledWith(slackManifest());
+  expect(button(root, 'Copied')).toBeDefined();
+
+  await copy();
+  await nextTick();
+  expect(button(root, 'Copy')).toBeDefined();
+  expect(textOf(root)).toContain('Could not access your clipboard.');
+});
+
+it('connects with both tokens without asking for a drafting agent and clears the inputs', async () => {
   const root = await mount();
   (button(root, 'Connect')!.props.onClick as () => void)();
   await tick();
@@ -101,14 +111,10 @@ it('connects with both tokens, lists only usable agents and clears the inputs', 
   const app = all(root).find((n) => n.props['aria-label'] === 'App-level token (xapp-)')!;
   expect(bot.props.type).toBe('password');
   expect(app.props.type).toBe('password');
-  const pick = all(root).find((n) => n.tag === 'select' && n.props['aria-label'] === 'Drafting agent')!;
-  expect(pick.options.map((o) => textOf(o))).toContain('Drafter');
-  for (const hidden of ['Secret', 'Old', 'Aristotle', 'Stageless'])
-    expect(pick.options.map((o) => textOf(o))).not.toContain(hidden);
+  expect(byLabel(root, 'Drafting agent')).toBeUndefined();
   expect(String(byLabel(root, 'Slack app manifest')!.props.value)).toContain('users:read.email');
   (bot.props.onInput as (e: unknown) => void)({ target: { value: 'xoxb-1' } });
   (app.props.onInput as (e: unknown) => void)({ target: { value: 'xapp-1' } });
-  (pick.props.onChange as (e: unknown) => void)({ target: { value: 'a1' } });
   await tick();
   const connect = all(root).filter((n) => n.tag === 'button' && textOf(n).trim() === 'Connect').pop()!;
   (connect.props.onClick as () => void)();
@@ -116,7 +122,6 @@ it('connects with both tokens, lists only usable agents and clears the inputs', 
   expect(call).toHaveBeenCalledWith('PUT', '/api/slack', {
     bot_token: 'xoxb-1',
     app_token: 'xapp-1',
-    drafting_agent_id: 'a1',
   });
   // The dialog closes and unmounts the token inputs; a reopened one starts empty.
   expect(byLabel(root, 'Bot token (xoxb-)')).toBeUndefined();
@@ -143,10 +148,11 @@ it('invalidates the Slack query on slack.changed', () => {
   expect(keys.slack('w')).toEqual(['ws', 'w', 'slack']);
 });
 
-it('ships a manifest with the email scope and the /study command', () => {
+it('ships a manifest with the email scope and the /to-do command', () => {
   const m = slackManifest();
   expect(m).toContain('users:read.email');
-  expect(m).toContain('/study');
+  expect(m).toContain('- command: /to-do');
+  expect(m).not.toContain('- command: /study');
   expect(m).toContain('messages_tab_enabled: true');
   expect(m).toContain('messages_tab_read_only_enabled: false');
   expect(m).toContain('socket_mode_enabled: true');

@@ -797,7 +797,7 @@ func TestAStartedStudyCannotBeEdited(t *testing.T) {
 	}
 }
 
-func TestTheOwnerDeletesAStudyAnyTime(t *testing.T) {
+func TestWorkspaceMemberDeletesAStudyAnyTime(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
@@ -810,11 +810,8 @@ func TestTheOwnerDeletesAStudyAnyTime(t *testing.T) {
 	if n := s.queuedRuns(t, c.ID); n != 1 {
 		t.Fatalf("the study is not working: %d queued runs", n)
 	}
-	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, b, w.ID, nil, nil); code != 403 {
+	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, b, w.ID, nil, nil); code != 204 {
 		t.Fatalf("another member deletes: %d", code)
-	}
-	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, a, w.ID, nil, nil); code != 204 {
-		t.Fatalf("owner deletes: %d", code)
 	}
 	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1", c.ID) + s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1", c.ID); n != 0 {
 		t.Fatalf("%d rows left", n)

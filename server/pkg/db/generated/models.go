@@ -1191,6 +1191,7 @@ type StudyDraftRequest struct {
 	CardID         *uuid.UUID  `json:"card_id"`
 	Completed      bool        `json:"completed"`
 	Priority       string      `json:"priority"`
+	SaveToTodo     bool        `json:"save_to_todo"`
 }
 
 type StudyProposal struct {

@@ -58,6 +58,22 @@ func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch,
 		}
 		harness, model, instructions = a.Harness, a.Model, a.Instructions
 	}
+	draft, err := tx.LockStudyDraft(ctx, ap.ID)
+	if err != nil {
+		return err
+	}
+	if draft != nil && draft.SaveToTodo {
+		selected, err := tx.Q.SlackAristotleHarness(ctx, r.ActingUserID)
+		if err != nil {
+			return err
+		}
+		if selected == "" {
+			return end("skipped", "runtime_offline")
+		}
+		if selected != harness {
+			harness, model = selected, ""
+		}
+	}
 	if _, supported := agent.Harnesses[harness]; !supported {
 		return end("failed", "harness_unsupported")
 	}

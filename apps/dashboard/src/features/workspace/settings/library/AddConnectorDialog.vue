@@ -85,10 +85,6 @@ async function submit() {
         <p v-if="!allowed" role="alert">
           Only workspace owners and admins can add custom connectors. Your draft is preserved.
         </p>
-        <p class="scope">
-          Shared with this workspace. Add a connector only if you trust its server and the tools it
-          exposes.
-        </p>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
         <p v-if="busy" role="status">Adding connector…</p>
       </div>

@@ -66,6 +66,7 @@ func TestStudyProposalOwnershipDiscardAndProjectRemoval(t *testing.T) {
 	ws := s.workspace(t, owner, "lab").ID
 	otherWS := s.workspace(t, owner, "other").ID
 	colleague := s.member(t, owner, ws, "member@lab.org", "member")
+	collaborator := s.member(t, owner, ws, "collaborator@lab.org", "member")
 	agent := s.stagedAgent(t, colleague, ws, "validation")
 	var project struct{ ID string }
 	if c := s.call(t, "POST", "/api/researches", owner, ws, map[string]string{"name": "Field study"}, &project); c != 201 {
@@ -91,8 +92,20 @@ func TestStudyProposalOwnershipDiscardAndProjectRemoval(t *testing.T) {
 	if c := s.call(t, "PUT", path, owner, ws, input, nil); c != 403 {
 		t.Fatal("non-owner edit", c)
 	}
-	if c := s.call(t, "DELETE", path+"?revision=1", owner, ws, nil, nil); c != 403 {
-		t.Fatal("non-owner discard", c)
+	if c := s.call(t, "PATCH", path+"/project", owner, otherWS, map[string]any{"revision": 1, "project_id": nil}, nil); c != 404 {
+		t.Fatal("cross-workspace project change", c)
+	}
+	if c := s.call(t, "DELETE", path+"?revision=1", owner, otherWS, nil, nil); c != 404 {
+		t.Fatal("cross-workspace discard", c)
+	}
+	if c := s.call(t, "PATCH", path+"/project", owner, ws, map[string]any{"revision": 1, "project_id": nil}, nil); c != 204 {
+		t.Fatal("workspace owner clears colleague's project", c)
+	}
+	if c := s.call(t, "PATCH", path+"/project", collaborator, ws, map[string]any{"revision": 2, "project_id": project.ID}, nil); c != 204 {
+		t.Fatal("member sets colleague's project", c)
+	}
+	if c := s.call(t, "PATCH", path+"/project", owner, ws, map[string]any{"revision": 2, "project_id": nil}, nil); c != 409 {
+		t.Fatal("stale project change", c)
 	}
 	if c := s.call(t, "DELETE", "/api/researches/"+project.ID, owner, ws, nil, nil); c != 204 {
 		t.Fatal(c)
@@ -105,7 +118,7 @@ func TestStudyProposalOwnershipDiscardAndProjectRemoval(t *testing.T) {
 		t.Fatal("stale start", c)
 	}
 	for range 2 {
-		if c := s.call(t, "DELETE", path+"?revision=2", colleague, ws, nil, nil); c != 204 {
+		if c := s.call(t, "DELETE", path+"?revision=4", collaborator, ws, nil, nil); c != 204 {
 			t.Fatal("discard/replay", c)
 		}
 	}

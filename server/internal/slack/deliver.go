@@ -52,6 +52,8 @@ func (s *Service) compose(ctx context.Context, tx *store.Tx, p db.SlackPost) (te
 		switch {
 		case err != nil:
 			return "", false, false, err
+		case d.Completed && d.SaveToTodo:
+			return "Your study draft is ready in To-do: " + appURL(s.PublicURL) + "/studies", true, false, nil
 		case d.Completed && d.CardID == nil:
 			return "", false, true, nil
 		case d.Completed:
@@ -88,7 +90,7 @@ func (s *Service) compose(ctx context.Context, tx *store.Tx, p db.SlackPost) (te
 		return mrkdwnEscaper.Replace(m.Body), true, false, nil
 	}
 	reader := labmemory.NewDisplayReader(tx, p.UserID, m.ChatID)
-	ss, ee, safe, err := reader.Answer(ctx, m)
+	ss, _, safe, err := reader.Answer(ctx, m)
 	if err != nil {
 		return "", false, false, err
 	}
@@ -98,7 +100,7 @@ func (s *Service) compose(ctx context.Context, tx *store.Tx, p db.SlackPost) (te
 	if reader.Changed(m.ID) {
 		ss = slices.Insert(ss, 0, labmemory.DisplayStatement{Text: changedText})
 	}
-	return Render(ss, ee, s.PublicURL), true, false, nil
+	return Render(ss, s.PublicURL), true, false, nil
 }
 
 // DeliverOnce posts every finished answer and draft of this installation.

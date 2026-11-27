@@ -490,9 +490,9 @@ async function logOut() {
         </template>
         <template v-else-if="step === 'Machines'">
           <h2>Machines</h2>
-          <p class="sub">Connect a computer so agents can run research.</p>
-          <p class="muted machine-hint">
-            Not connected yet? Run <code>lyk login</code> then <code>lyk daemon start</code>.
+          <p class="sub">
+            Connect a computer so agents can run research. Run <code>lyk login</code> then
+            <code>lyk daemon start</code>.
           </p>
           <div class="runtime-box">
             <b>{{ runtimes.data.value?.length ?? 0 }} agent runtimes</b>
@@ -645,7 +645,7 @@ async function logOut() {
 .onboarding-career-stage > span {
   font-weight: 500;
 }
-.machine-hint code {
+.sub code {
   padding: 2px 5px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -761,7 +761,7 @@ async function logOut() {
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
-.content > :is(h2, h3),
+.content > :is(h2, h3, .sub),
 .content :deep(.published-profile > h4) {
   text-align: center;
 }
