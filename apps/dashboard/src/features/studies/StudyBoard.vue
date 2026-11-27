@@ -114,10 +114,10 @@ const teams = useTeams('', '');
 const proposalEditor = ref<StudyProposal>();
 function proposalAssignee(p: StudyProposal) {
   const a = p.assignee;
-  if (!a.agent_id && !a.pack_id) return 'Unassigned';
-  return a.type === 'agent'
-    ? (agents.data.value?.find((agent) => agent.id === a.agent_id)?.name ?? 'Unavailable agent')
-    : (teams.data.value?.find((team) => team.id === a.pack_id)?.name ?? 'Unavailable Team');
+  if (a.type === 'agent')
+    return agents.data.value?.find((agent) => agent.id === a.agent_id)?.name ?? 'Unavailable agent';
+  if (!a.pack_id) return 'Unassigned';
+  return teams.data.value?.find((team) => team.id === a.pack_id)?.name ?? 'Unavailable Team';
 }
 const me = useMe();
 const members = useMembers();

@@ -222,7 +222,8 @@ export interface StudyProposalContent {
   project_id: string | null;
 }
 
-export interface StudyProposal extends StudyProposalContent {
+export interface StudyProposal extends Omit<StudyProposalContent, 'assignee'> {
+  assignee: { type: 'agent'; agent_id: string } | { type: 'team'; pack_id?: string };
   id: string;
   workspace_id: string;
   owner_id: string;
