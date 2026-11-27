@@ -4,6 +4,7 @@ import App from './App.vue';
 import { router } from './router';
 import { createDashboardQueryClient } from './api/query-client';
 import '@fontsource-variable/inter';
+import '@fontsource-variable/inter/wght-italic.css';
 import '@fontsource-variable/jetbrains-mono';
 import '@fontsource/barlow/400.css';
 import '@fontsource/barlow/500.css';

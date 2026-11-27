@@ -70,7 +70,6 @@ describe('the dashboard source layout', () => {
       ['views/machines.css', 'features/machines/machines.css'],
       ['components/AddComputerDialog.vue', 'features/machines/AddComputerDialog.vue'],
       ['components/MachineCommand.vue', 'features/machines/MachineCommand.vue'],
-      ['components/MachinePicker.vue', 'features/machines/MachinePicker.vue'],
       ['components/MachineSharing.vue', 'features/machines/MachineSharing.vue'],
       ['components/DaemonSettings.vue', 'features/machines/DaemonSettings.vue'],
       ['lib/machines.ts', 'features/machines/machines.ts'],
@@ -137,7 +136,6 @@ describe('the dashboard source layout', () => {
       ['views/CreateTask.vue', 'features/studies/CreateStudy.vue'],
       ['components/StudyOutputs.vue', 'features/studies/StudyOutputs.vue'],
       ['components/ComposerCalendar.vue', 'features/studies/ComposerCalendar.vue'],
-      ['lib/environment.ts', 'features/studies/environment.ts'],
       ['lib/dates.ts', 'features/studies/dates.ts'],
     ];
     for (const [from, to] of moved) {

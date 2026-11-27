@@ -165,28 +165,6 @@ func (s *Service) dispatch(ctx context.Context, ws, id uuid.UUID) error {
 	})
 }
 
-// RunNow is "Run now": a manual run that acts as the person who asked.
-func (s *Service) RunNow(ctx context.Context, ws, autoresearch, actor uuid.UUID) (db.AutoresearchRun, error) {
-	var r db.AutoresearchRun
-	err := s.Store.InWorkspace(ctx, ws, actor, func(tx *store.Tx) error {
-		var err error
-		r, _, err = s.Admit(ctx, tx, Admission{Autoresearch: autoresearch, Source: "manual", Actor: actor,
-			PlannedAt: s.now(), Key: "manual:" + uuid.NewString()})
-		return err
-	})
-	if err != nil {
-		return r, err
-	}
-	if err := s.Dispatch(ctx, ws, r.ID); err != nil {
-		return r, err
-	}
-	err = s.Store.InWorkspace(ctx, ws, actor, func(tx *store.Tx) error {
-		r, err = tx.Q.GetRun(ctx, db.GetRunParams{WorkspaceID: ws, ID: r.ID})
-		return err
-	})
-	return r, err
-}
-
 // FailStudyDraft records a failed background dispatch and tells the requester.
 func (s *Service) FailStudyDraft(ctx context.Context, ws, id uuid.UUID) error {
 	return s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {

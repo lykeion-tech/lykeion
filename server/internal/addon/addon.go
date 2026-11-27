@@ -178,19 +178,6 @@ func (a Addon) Hash() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Compose adds the lab's text after a role's skill, under Heading. The role's
-// skill comes first and whole; with no text it comes back unchanged.
-func Compose(skill, text string) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return skill
-	}
-	if !strings.HasSuffix(skill, "\n") {
-		skill += "\n"
-	}
-	return skill + "\n" + Heading + "\n\n" + text + "\n"
-}
-
 // Load reads a column's add-on. No row is an empty add-on. A stored row that
 // breaks a rule returns an error wrapping ErrInvalid.
 func Load(ctx context.Context, q *db.Queries, ws uuid.UUID, column string) (Addon, error) {

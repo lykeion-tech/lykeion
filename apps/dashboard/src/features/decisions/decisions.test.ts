@@ -1,7 +1,6 @@
 import { ref, type Component } from 'vue';
 import { afterEach, expect, it, vi } from 'vitest';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
-import DecisionBadge from './DecisionBadge.vue';
 import DecisionRail from './DecisionRail.vue';
 import { decisionFilters } from './decisionFilters';
 import DecisionOptions from './DecisionOptions.vue';
@@ -197,10 +196,8 @@ it('shows a decided item its choice and who made it, without buttons', () => {
   expect(textOf(root)).toContain('by Ada');
 });
 
-it('shows the open count in the sidebar and refreshes it on inbox.created', () => {
-  expect(textOf(mount(DecisionBadge, {}))).toBe('3');
-  count.value = { open: 0, due_soon: 0 };
-  expect(textOf(mount(DecisionBadge, {}))).toBe('');
+
+it('refreshes the decision count on inbox.created', () => {
   const event = {
     type: 'inbox.created',
     workspace_id: 'w1',
@@ -237,14 +234,6 @@ it('names the item kind on a decision instead of showing its id', () => {
   expect(text({ kind: 'brand_new' as DecisionItem['kind'] })).not.toContain('brand_new');
 });
 
-it('warns on the badge when a decision expires soon', () => {
-  const badge = (root: ReturnType<typeof node>) => all(root).find((n) => n.tag === 'span')!;
-  expect(badge(mount(DecisionBadge, {})).props.class).not.toContain('due');
-  count.value = { open: 3, due_soon: 1 };
-  const due = badge(mount(DecisionBadge, {}));
-  expect(due.props.class).toContain('due');
-  expect(due.props['aria-label']).toBe('Open decisions, 1 due soon');
-});
 
 it('marks a reminded row, offers no Archive on an open decision and shows unread only to its addressee', async () => {
   rows.value = [

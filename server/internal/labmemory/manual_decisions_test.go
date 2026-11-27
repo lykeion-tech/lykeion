@@ -6,7 +6,6 @@ import (
 	db "lykeion/server/pkg/db/generated"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/store"
@@ -59,12 +58,6 @@ func TestManualDecisionNeverSharedMemory(t *testing.T) {
 		}
 		if _, e := ReadMaintenance(t.Context(), tx, note); !errors.Is(e, ErrNotFound) {
 			t.Fatalf("maintenance read: %v", e)
-		}
-		if e := tx.QueueLessonStudy(t.Context(), f.study, &note.ID, "decision", time.Now()); e == nil {
-			t.Fatal("private decision queued for lesson")
-		}
-		if e := tx.QueueLessonStudy(t.Context(), f.study, &f.decision, "decision", time.Now()); e != nil {
-			return e
 		}
 		study, e := ReadMaintenance(t.Context(), tx, Ref{Kind: "study", ID: f.study})
 		if e != nil {

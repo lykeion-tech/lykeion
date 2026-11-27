@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"lykeion/server/internal/service"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type roleRun struct {
@@ -624,7 +624,7 @@ func TestRoleSupersedeRetainsHistoricalRows(t *testing.T) {
 		t.Fatal(code)
 	}
 	err := s.H.Store.InWorkspace(context.Background(), uuid.MustParse(ws), uuid.MustParse(run.id), func(tx *store.Tx) error {
-		return service.SupersedeRole(context.Background(), tx, uuid.MustParse(c.ID), "grounding", "scoper")
+		return tx.Q.SupersedeRoleRecords(context.Background(), db.SupersedeRoleRecordsParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(c.ID), BoardColumn: "grounding", Role: "scoper"})
 	})
 	if err != nil {
 		t.Fatal(err)

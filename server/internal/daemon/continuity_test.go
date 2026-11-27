@@ -212,26 +212,6 @@ func TestEmptyScopeNeverResumes(t *testing.T) {
 	}
 }
 
-func TestForgetScopeDeletesOnlyThatRecord(t *testing.T) {
-	d := registryDaemon(t)
-	d.cfg.Home = t.TempDir()
-	ws, user, kept, gone := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	d.finishContinuity(begin(t, d, claimFor(ws, kept, user, "analysis")), cleanClaude)
-	d.finishContinuity(begin(t, d, claimFor(ws, gone, user, "analysis")), cleanClaude)
-	if err := d.ForgetScope(ws, user, "claude", boardScope(gone, "analysis")); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.ForgetScope(ws, user, "claude", boardScope(gone, "analysis")); err != nil {
-		t.Fatal("forgetting twice failed:", err)
-	}
-	if cont := begin(t, d, claimFor(ws, gone, user, "analysis")); cont.resume != "" {
-		t.Fatal("forgotten scope resumed")
-	}
-	if cont := begin(t, d, claimFor(ws, kept, user, "analysis")); cont.resume != "s1" {
-		t.Fatal("another scope was forgotten")
-	}
-}
-
 func TestContextChangeStartsFresh(t *testing.T) {
 	d := registryDaemon(t)
 	ws, card, user := uuid.New(), uuid.New(), uuid.New()
@@ -349,38 +329,6 @@ func TestInvalidScopeIsRefused(t *testing.T) {
 
 // Forgetting a scope also deletes its private folder, never while a run holds
 // it, and leaves other scopes' folders.
-func TestForgetScopeDeletesItsPrivateFolder(t *testing.T) {
-	d := registryDaemon(t)
-	d.cfg.Home = t.TempDir()
-	ws, user, kept, gone := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	keptDir := filepath.Join(d.cfg.Home, "scope-"+(sessionScope{Workspace: ws, User: user, Harness: "claude", Scope: boardScope(kept, "analysis")}).key())
-	goneName := "scope-" + (sessionScope{Workspace: ws, User: user, Harness: "claude", Scope: boardScope(gone, "analysis")}).key()
-	goneDir := filepath.Join(d.cfg.Home, goneName)
-	for _, p := range []string{keptDir, goneDir} {
-		must(t, os.MkdirAll(filepath.Join(p, ".cli-home"), 0700))
-	}
-	d.holdScratch(goneName)
-	if err := d.ForgetScope(ws, user, "claude", boardScope(gone, "analysis")); err == nil {
-		t.Fatal("forgot a scope whose folder a run holds")
-	}
-	if _, err := os.Stat(goneDir); err != nil {
-		t.Fatal("deleted a held scope folder", err)
-	}
-	d.releaseScratch(goneName)
-	if err := d.ForgetScope(ws, user, "claude", boardScope(gone, "analysis")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(goneDir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("forgotten scope's folder kept", err)
-	}
-	if _, err := os.Stat(keptDir); err != nil {
-		t.Fatal("another scope's folder deleted", err)
-	}
-	if !d.holdScratch(goneName) {
-		t.Fatal("forget kept its hold on the folder")
-	}
-}
-
 func TestEveryRunResumesItsScope(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
@@ -520,4 +468,19 @@ func TestResumedCommentWaitsForBackendAcceptance(t *testing.T) {
 			}
 		})
 	}
+}
+
+func SavePolicy(stateDir string, ws uuid.UUID, p Policy) error {
+	p.Version = policyVersion
+	if err := p.check(); err != nil {
+		return err
+	}
+	dir := profileDir(stateDir, ws)
+	if err := checkProfileDir(dir); err != nil {
+		return err
+	}
+	if err := privateDir(filepath.Dir(dir)); err != nil {
+		return err
+	}
+	return atomicJSON(dir, "policy.json", p)
 }

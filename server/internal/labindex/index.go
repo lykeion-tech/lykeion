@@ -206,51 +206,6 @@ func (i *Index) Search(ctx context.Context, ws uuid.UUID, q string, k int) ([]la
 	return searchRefs(raw, ws)
 }
 
-// VisitStudyCandidates traverses only this workspace's indexed studies, in
-// distance order. A page may consist entirely of reopened or deleted studies.
-// Embed once, return small pages and continue until the caller has enough.
-func (i *Index) VisitStudyCandidates(ctx context.Context, ws uuid.UUID, q string, visit func([]labmemory.Ref) (bool, error)) error {
-	v, err := i.e.Embed(ctx, []string{q}, true)
-	if err != nil {
-		return err
-	}
-	if len(v) != 1 {
-		return errors.New("invalid embedding count")
-	}
-	b, err := vector(v[0])
-	if err != nil {
-		return err
-	}
-	const page = 32
-	query := fmt.Sprintf("(@workspace:{%s} @model:{%s} @kind:{study} @study_embedding:[VECTOR_RANGE 2.01 $BLOB]=>{$YIELD_DISTANCE_AS: dist})", tag(ws.String()), tag(i.model))
-	for offset := 0; ; offset += page {
-		raw, err := i.rdb.Do(ctx, "FT.SEARCH", "idx:lab", query, "PARAMS", 2, "BLOB", b, "SORTBY", "dist", "ASC", "RETURN", 2, "ref", "workspace", "LIMIT", offset, page, "DIALECT", 2).Result()
-		if err != nil {
-			return err
-		}
-		refs, err := searchRefs(raw, ws)
-		if err != nil {
-			return err
-		}
-		stop, err := visit(refs)
-		if err != nil || stop {
-			return err
-		}
-		// Count raw hits, not validated refs; malformed metadata cannot hide later candidates.
-		n := 0
-		switch r := raw.(type) {
-		case []interface{}:
-			n = (len(r) - 1) / 2
-		case map[interface{}]interface{}:
-			entries, _ := r["results"].([]interface{})
-			n = len(entries)
-		}
-		if n < page {
-			return nil
-		}
-	}
-}
-
 func searchRefs(raw any, ws uuid.UUID) ([]labmemory.Ref, error) {
 	out := []labmemory.Ref{}
 	var rows []interface{}

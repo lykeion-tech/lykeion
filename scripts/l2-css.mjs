@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, copyFile, rm } from 'node:fs/promises';
+import { readFile, writeFile, copyFile, rm, glob } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -6,8 +6,58 @@ import { execFileSync } from 'node:child_process';
 import postcss from 'postcss';
 import { format, resolveConfig } from 'prettier';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const source = resolve(process.argv[2] ?? '');
+const output = join(root, 'apps/dashboard/src/features/coresearch');
 const formatOptions = { ...(await resolveConfig(join(root, 'package.json'))), parser: 'css' };
+// A selector that needs a class nothing can put in the DOM never matches. Classes
+// come from Lykeion's own sources, the libraries that render inside Coresearch,
+// or a prefix the sources complete at runtime (`kind-${k}`, 'kind-' + k).
+async function prune(css) {
+  const files = execFileSync('git', ['ls-files', 'apps', 'packages', 'server'], { cwd: root, encoding: 'utf8' })
+    .split('\n')
+    .filter((f) => /\.(ts|vue|m?js|html|go)$/.test(f) && !/\.test\.|_test\.go$|\/bundle\//.test(f));
+  const libraries = [
+    'node_modules/@codemirror/*/dist/*.js',
+    'node_modules/@vue-flow/core/dist/**/*.mjs',
+    'node_modules/@shikijs/core/dist/**/*.mjs',
+    'node_modules/pdfjs-dist/build/pdf.mjs',
+    'node_modules/pdfjs-dist/web/pdf_viewer.mjs',
+    'node_modules/markdown-it/dist/markdown-it.mjs',
+    'node_modules/3dmol/build/3Dmol.es6-min.js',
+  ];
+  for await (const f of glob(libraries, { cwd: root })) files.push(f);
+  const used = (await Promise.all(files.map((f) => readFile(join(root, f), 'utf8')))).join('\n');
+  const prefixes = [
+    ...used.matchAll(/([A-Za-z][\w-]{2,}-)\$\{/g),
+    ...used.matchAll(/['"`]([A-Za-z][\w-]{2,}-)['"`]\s*\+/g),
+  ].map((m) => m[1]);
+  const live = (c) => c === 'coresearch' || used.includes(c) || prefixes.some((p) => c.startsWith(p));
+  const tree = postcss.parse(css);
+  tree.walkRules((rule) => {
+    if (rule.parent?.type === 'atrule' && /keyframes$/.test(rule.parent.name)) return;
+    const kept = selectors(rule.selector).filter((s) => {
+      const outer = s.replace(/:(?:not|is|where|has)\((?:[^()]|\([^()]*\))*\)/g, '');
+      return [...outer.matchAll(/\.((?:\\.|[\w-])+)/g)].every((m) => live(m[1].replace(/\\(.)/g, '$1')));
+    });
+    if (kept.length) rule.selector = kept.join(', ');
+    else rule.remove();
+  });
+  for (let empty = true; empty; ) {
+    empty = false;
+    tree.walkAtRules((at) => {
+      if (at.nodes && at.nodes.length === 0) {
+        at.remove();
+        empty = true;
+      }
+    });
+  }
+  return tree.toString();
+}
+if (process.argv[2] === '--prune') {
+  const file = join(output, 'l2.css');
+  await writeFile(file, await format(await prune(await readFile(file, 'utf8')), formatOptions));
+  process.exit(0);
+}
+const source = resolve(process.argv[2] ?? '');
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
   cwd: source,
   encoding: 'utf8',
@@ -15,8 +65,6 @@ const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
 if (revision !== 'dc21df94e8c9afe81ddcdac463cdde8d35d53c88')
   throw new Error('Use the pinned L2 revision');
 const ui = join(source, 'packages/ui');
-const output = join(root, 'apps/dashboard/src/features/coresearch');
-await mkdir(join(output, 'fonts'), { recursive: true });
 const entry = join(ui, '.coresearch-css-entry.css');
 const compiled = join(ui, '.coresearch-css-output.css');
 const imports = [
@@ -106,28 +154,11 @@ function scope(css) {
   });
   return flat.toString();
 }
-let fontCSS = '';
-for (const [family, files] of [
-  ['inter', ['index.css', 'wght-italic.css']],
-  ['jetbrains-mono', ['index.css']],
-]) {
-  const pkg = join(ui, 'node_modules/@fontsource-variable', family);
-  const version = JSON.parse(await readFile(join(pkg, 'package.json'), 'utf8')).version;
-  if (version !== '5.3.0') throw new Error(`Unexpected ${family} font version ${version}`);
-  for (const file of files) {
-    let css = await readFile(join(pkg, file), 'utf8');
-    for (const match of css.matchAll(/url\((?:['"])?\.\/files\/([^)'"\s]+)/g)) {
-      await copyFile(join(pkg, 'files', match[1]), join(output, 'fonts', match[1]));
-    }
-    fontCSS += css.replaceAll('./files/', './fonts/') + '\n';
-  }
-  await copyFile(join(pkg, 'LICENSE'), join(output, 'fonts', `${family}-LICENSE`));
-}
 try {
   await writeFile(
     entry,
     imports.map((p) => `@import "./src/${p}";`).join('\n') +
-      `\n@source "./src";\n@source "${join(root, 'apps/dashboard/src/features/coresearch/**')}";\n@source "${join(root, 'apps/dashboard/src/features/coresearch/CoresearchList.vue')}";\n@source "${join(root, 'apps/dashboard/src/features/coresearch/CoresearchProject.vue')}";\n`,
+      `\n@source not "./src";\n@source "${join(root, 'apps/dashboard/src')}";\n`,
   );
   execFileSync('npx', ['--yes', '@tailwindcss/cli@4.3.3', '-i', entry, '-o', compiled], {
     cwd: ui,
@@ -137,7 +168,7 @@ try {
   const css = await readFile(compiled, 'utf8');
   await writeFile(
     join(output, 'l2.css'),
-    await format(header + fontCSS + scope(css), formatOptions),
+    await format(header + (await prune(scope(css))), formatOptions),
   );
   await copyFile(join(source, 'LICENSE'), join(output, 'L2-LICENSE'));
 } finally {

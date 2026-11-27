@@ -142,9 +142,6 @@ SELECT EXISTS (
 -- name: InsertWebhookDelivery :one
 INSERT INTO github_webhook_delivery (id) VALUES (@id) ON CONFLICT (id) DO NOTHING RETURNING id;
 
--- name: DeleteWebhookDelivery :exec
-DELETE FROM github_webhook_delivery WHERE id = @id;
-
 -- name: PruneWebhookDeliveries :exec
 DELETE FROM github_webhook_delivery WHERE received_at < now() - interval '7 days';
 

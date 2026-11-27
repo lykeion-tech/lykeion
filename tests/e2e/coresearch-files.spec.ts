@@ -19,10 +19,10 @@ test('active chat turns display the ring spinner beside Working', async ({ page 
   await page.goto('/#/coresearch/p/selected');
   const status = page.getByRole('status').filter({ hasText: 'Working' });
   await expect(status).toBeVisible();
-  await expect(status.locator('.v-ring2')).toBeVisible();
-  await expect(status.locator('.v-ring3')).toBeVisible();
+  await expect(status.locator('.run-status-ring-right')).toBeVisible();
+  await expect(status.locator('.run-status-ring-left')).toBeVisible();
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(status.locator('.v-ring2')).toHaveCSS('animation-name', 'none');
+  await expect(status.locator('.run-status-ring-right')).toHaveCSS('animation-name', 'none');
 });
 
 test('chat transcript uses the Study step timeline, including errors and expandable output', async ({

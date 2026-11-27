@@ -204,9 +204,9 @@ func TestFlagSetsLessonAside(t *testing.T) {
 		if code := s.call(t, "POST", path, b, ws, map[string]string{"reason": strings.Repeat("界", 500)}, nil); code != 204 {
 			t.Fatal(code)
 		}
-		var aside, job, flag bool
-		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT status='set_aside' AND set_aside_reason='flagged',EXISTS(SELECT 1 FROM lesson_job WHERE lesson_id=$1 AND triggers=ARRAY['flag'] AND due_at<=now()),EXISTS(SELECT 1 FROM lesson_flag WHERE lesson_id=$1 AND length(reason)=500) FROM lesson WHERE id=$1`, id).Scan(&aside, &job, &flag); err != nil || !aside || !flag || job {
-			t.Fatalf("flag %v %v %v %v", aside, job, flag, err)
+		var aside, flag bool
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT status='set_aside' AND set_aside_reason='flagged',EXISTS(SELECT 1 FROM lesson_flag WHERE lesson_id=$1 AND length(reason)=500) FROM lesson WHERE id=$1`, id).Scan(&aside, &flag); err != nil || !aside || !flag {
+			t.Fatalf("flag %v %v %v", aside, flag, err)
 		}
 	}
 }

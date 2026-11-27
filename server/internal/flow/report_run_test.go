@@ -538,14 +538,14 @@ func TestReportRunDoesNotAdvanceStudy(t *testing.T) {
 	itemsBefore := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1", c.ID)
 	runsBefore := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1", c.ID)
 	hs := handin.HandIns{Runs: l.e.AgentRuns, SentBack: l.e.SentBack}
-	if probs, err := hs.Submit(ctx, l.owner, ref, run.ID, json.RawMessage(`{"status":"done","reason":null,"concepts":[],"facts":[],"links":[{"phrase":"","occurrence":0,"node":""}]}`)); err != nil || len(probs) == 0 {
+	if probs, err := hs.SubmitWithMessageSeq(ctx, l.owner, ref, run.ID, json.RawMessage(`{"status":"done","reason":null,"concepts":[],"facts":[],"links":[{"phrase":"","occurrence":0,"node":""}]}`), 0); err != nil || len(probs) == 0 {
 		t.Fatalf("a misshapen report hand-in: %v %v", probs, err)
 	}
 	raw := json.RawMessage(`{"status":"done","reason":null,"concepts":[{"key":"auc","label":"AUC","type":"measure"}],"facts":[],"links":[]}`)
-	if probs, err := hs.Submit(ctx, l.owner, ref, run.ID, raw); err != nil || len(probs) != 0 {
+	if probs, err := hs.SubmitWithMessageSeq(ctx, l.owner, ref, run.ID, raw, 0); err != nil || len(probs) != 0 {
 		t.Fatalf("the report hand-in: %v %v", probs, err)
 	}
-	if probs, err := hs.Submit(ctx, l.owner, ref, run.ID, raw); err != nil || len(probs) != 0 {
+	if probs, err := hs.SubmitWithMessageSeq(ctx, l.owner, ref, run.ID, raw, 0); err != nil || len(probs) != 0 {
 		t.Fatalf("the report hand-in again: %v %v", probs, err)
 	}
 	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1", c.ID); n != recordsBefore+1 {

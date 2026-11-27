@@ -625,7 +625,7 @@ func TestCorrectedValueNeedsTheLeadsExplicitReply(t *testing.T) {
 	}
 	raw := []byte(`{"status":"done","answer":"Corrected the slope.","values":[{"name":"slope","value":"0.43","file":"fit.py"}],"outputs":[],"replies":[{"item":"0.42: slope","action":"corrected","reason":"Recalculated."}]}`)
 	hs := handin.HandIns{Runs: l.e.AgentRuns, SentBack: l.e.SentBack}
-	if problems, err := hs.Submit(ctx, l.owner, ref, run.ID, raw); err != nil || len(problems) != 0 {
+	if problems, err := hs.SubmitWithMessageSeq(ctx, l.owner, ref, run.ID, raw, 0); err != nil || len(problems) != 0 {
 		t.Fatalf("submit: %v %v", problems, err)
 	}
 	rv, err = l.e.readReview(context.Background(), l.ws, c)

@@ -29,16 +29,6 @@ function dayText(s: Schedule, monthDay: string) {
       : monthDay;
 }
 
-// The sentence stored with the autoresearch.
-export function scheduleSummary(s: Schedule) {
-  if (s.cron) return `Cron ${s.cron} (${s.timezone})`;
-  const timing =
-    s.timeMode === 'time'
-      ? 'At ' + s.time
-      : `Every ${s.interval} ${s.unit} between ${s.windowStart} and ${s.windowEnd}`;
-  return `${timing} · ${dayText(s, `Day ${s.monthDay} of the month`)} · ${s.timezone}`;
-}
-
 // The shorter line shown under the editor; the window only appears when it is not all day.
 export function scheduleLabel(s: Schedule) {
   if (s.cron) return s.cron;

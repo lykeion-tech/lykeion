@@ -75,7 +75,7 @@ func TestManualDecisionCrossUserAcceptance(t *testing.T) {
 	}
 	raw, _ := json.Marshal(map[string]any{"message": "A proposal for your review", "draft": map[string]any{"title": "Private AI proposal", "context": "Private acceptance context", "deadline": nil, "card_id": study.ID}, "statements": []any{}})
 	h := handin.HandIns{Runs: s.H.AgentRuns, Aristotle: labmemory.Answers{Store: s.H.Store}}
-	if problems, err := h.Submit(t.Context(), who, runtime, run, raw); err != nil || len(problems) > 0 {
+	if problems, err := h.SubmitWithMessageSeq(t.Context(), who, runtime, run, raw, 0); err != nil || len(problems) > 0 {
 		t.Fatal(err, problems)
 	}
 	var history struct {

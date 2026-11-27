@@ -37,26 +37,6 @@ SELECT id FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_
   AND role NOT IN ('', 'leader', 'auditor', 'agent', 'objector', 'rerun', 'reporter') AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at LIMIT 1;
 
--- The live records each agent run of a round wrote itself, so the engine can tell
--- whether a role left a result.
--- name: RoundAgentRunRecords :many
-SELECT agent_run_id::uuid AS agent_run_id, kind, body FROM record
-WHERE workspace_id = @workspace_id AND card_id = @card_id AND board_column = @board_column
-  AND round = @round AND agent_run_id IS NOT NULL AND superseded_at IS NULL;
-
--- name: SetAgentRunHandoffNote :exec
-UPDATE agent_run SET handoff_note = @handoff_note WHERE id = @id AND workspace_id = @workspace_id;
-
--- Which CLI session a role run continues on its owner's daemon.
--- name: SetAgentRunContinuity :exec
-UPDATE agent_run SET continuity_scope = @continuity_scope WHERE id = @id AND workspace_id = @workspace_id;
-
--- Sets or clears why a card's queued agent runs wait. Clearing also drops
--- runtime_offline, which the next tick restores when it still holds.
--- name: SetCardQueueReason :exec
-UPDATE agent_run SET queue_reason = sqlc.narg(queue_reason)
-WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'queued';
-
 -- name: MarkQueueOffline :exec
 SELECT mark_queue_offline();
 
@@ -69,10 +49,6 @@ ORDER BY number LIMIT 1;
 
 -- name: GetCardByNumber :one
 SELECT * FROM card WHERE workspace_id = @workspace_id AND number = @number;
-
--- name: CountKindRecords :one
-SELECT count(*) FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id
-  AND board_column = @board_column AND kind = @kind;
 
 -- name: SupersedeRoleKinds :exec
 UPDATE record SET superseded_at = now()

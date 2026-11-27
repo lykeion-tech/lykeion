@@ -99,20 +99,6 @@ func TestCanonicalAndHash(t *testing.T) {
 	}
 }
 
-func TestComposeKeepsTheRoleSkillFirstAndWhole(t *testing.T) {
-	skill := "---\nname: scoper\n---\n# Scoper\nScope the question.\n"
-	got := Compose(skill, "  Also search the lab index.\n")
-	if want := skill + "\n## Lab additions\n\nAlso search the lab index.\n"; got != want {
-		t.Fatalf("got\n%s\nwant\n%s", got, want)
-	}
-	if Compose(skill, " \n") != skill {
-		t.Fatal("empty text changed the skill")
-	}
-	if got := Compose("# No newline", "x"); got != "# No newline\n\n## Lab additions\n\nx\n" {
-		t.Fatalf("%q", got)
-	}
-}
-
 func TestServersChecksSnapshotsAndReturnsNilWhenEmpty(t *testing.T) {
 	for _, raw := range []json.RawMessage{nil, json.RawMessage(`[]`)} {
 		ss, err := Servers(raw)

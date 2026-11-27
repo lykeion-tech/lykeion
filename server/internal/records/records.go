@@ -83,16 +83,6 @@ func (v *View) Latest(kind string) (db.Record, bool) {
 	return ks[len(ks)-1], true
 }
 
-func (v *View) ByKey(kind, key string) (db.Record, bool) {
-	ks := v.Kind(kind)
-	for i := len(ks) - 1; i >= 0; i-- {
-		if ks[i].Key == key {
-			return ks[i], true
-		}
-	}
-	return db.Record{}, false
-}
-
 func (v *View) Text(r db.Record) (string, error) {
 	if r.BlobKey == "" {
 		return "", nil

@@ -92,8 +92,8 @@ var schemas = map[Kind]string{
 		"values", list(object("name", str(),
 			"value", desc(str(), "The exact number or observed outcome label printed by the script or saved in its output."),
 			"file", str(), "run", desc(nullStr(), "Exact run:KEY of the script that produced this value in a saved output, or null when the file is already a run:KEY or no script produced it."),
-			"field", desc(nullStr(), "JSON Pointer to the number in the named saved JSON file, or null for an unbound value."),
-			"measure", desc(nullStr(), "ID from an accepted hypothesis for this measurement, or null for an unbound value."))),
+			"field", desc(nullStr(), "JSON Pointer to the number in the named saved JSON file. Set it together with measure, or leave both null for an unbound value such as a standard error or a label."),
+			"measure", desc(nullStr(), "ID from an accepted hypothesis for this measurement. Set it together with field, or leave both null for an unbound value."))),
 		"replies", list(reply())),
 	Auditor: build(
 		"concerns", list(object("item", str(), "concern", str())),

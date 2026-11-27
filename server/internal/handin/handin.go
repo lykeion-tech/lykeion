@@ -554,6 +554,10 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		names[n] = true
 		add(v.Field == nil || validJSONPointer(*v.Field), "values %d: field must be a JSON Pointer", i+1)
 		add(v.Measure == nil || review.ValidMeasureID(*v.Measure), "values %d: measure id must be 1 to 64 lowercase letters, digits, hyphens or underscores and start with a letter", i+1)
+		// Review fails these every time; refusing them here lets the agent fix
+		// them in the same attempt instead of spending review rounds.
+		add((v.Field == nil) == (v.Measure == nil), "values %d: field and measure go together: set both for an accepted hypothesis measure, or leave both null for a supporting value such as a standard error or a label", i+1)
+		add(v.Field == nil || isNumber(v.Value), "values %d: a bound value must be a number; leave field and measure null for a label such as %q", i+1, v.Value)
 	}
 	for i, c := range h.Concerns {
 		add(c.Item != "" && within(c.Concern, 2000), "concerns %d: name the item and give a concern of 1 to 2000 characters", i+1)
@@ -615,3 +619,11 @@ func within(s string, max int) bool {
 	n := utf8.RuneCountInString(strings.TrimSpace(s))
 	return n >= 1 && utf8.RuneCountInString(s) <= max
 }
+
+// decimal is the plain or exponent number a bound value reports; review
+// compares it with the saved JSON field.
+// It matches flow's numberText: a number review cannot read would fail
+// binding on every redo.
+var decimal = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$`)
+
+func isNumber(s string) bool { return decimal.MatchString(strings.TrimSpace(s)) }

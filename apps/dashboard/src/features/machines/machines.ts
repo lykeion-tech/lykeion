@@ -74,14 +74,3 @@ export function computerStartCommands(server: string, platform: 'unix' | 'window
   return `${executable} login --server ${quoted} --email you@lab.org\n${executable} daemon ${platform === 'windows' ? 'run' : 'start'}`;
 }
 
-// Owner machines remain usable on every platform, including while offline.
-export function studyMachines(runtimes: Runtime[], userId: string): Daemon[] {
-  if (!userId) return [];
-  return groupDaemons(
-    runtimes.filter(
-      (r) =>
-        r.owner_id === userId ||
-        (r.os === 'linux' && (r.visibility === 'workspace' || r.shared_with?.includes(userId))),
-    ),
-  );
-}

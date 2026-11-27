@@ -75,10 +75,3 @@ export function moveDate(from: Date, key: string): Date | null {
   }
 }
 
-export function formatDuration(seconds?: number | null) {
-  return seconds === undefined || seconds === null
-    ? 'Not reported'
-    : seconds < 60
-      ? `${Math.round(seconds)}s`
-      : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-}

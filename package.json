@@ -53,8 +53,7 @@
     "shiki": "4.3.1",
     "three": "0.186.1",
     "vue": "3.5.43",
-    "vue-router": "^4.6.4",
-    "vue-spinner": "3.0.2"
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

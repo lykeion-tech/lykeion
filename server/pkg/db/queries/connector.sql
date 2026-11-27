@@ -32,10 +32,3 @@ ON CONFLICT (workspace_id, name) DO NOTHING;
 
 -- name: LockWorkspaceConnector :one
 SELECT * FROM workspace_connector WHERE workspace_id = @workspace_id AND name = @name FOR UPDATE;
-
--- name: UpdateWorkspaceConnector :one
-UPDATE workspace_connector
-SET enabled = @enabled, key_ciphertext = @key_ciphertext, licence_confirmed_by = @licence_confirmed_by,
-    licence_confirmed_at = @licence_confirmed_at, updated_by = @updated_by, updated_at = now()
-WHERE workspace_id = @workspace_id AND name = @name
-RETURNING *;

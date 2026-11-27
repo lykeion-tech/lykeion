@@ -3,6 +3,7 @@ package handin
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -374,6 +375,27 @@ func (c *converter) replies(rs []Reply, prev Review) {
 		missed[identity(id)] = true
 	}
 	answered := map[string]bool{}
+	replied := map[string]bool{} // record keys a reply names
+	defer func() {
+		// Review fails a sent-back item left unanswered every time, so a redo
+		// that leaves one is refused here, while the agent can still answer it.
+		// An item can have several names; any of them answers it.
+		ids := slices.Sorted(maps.Keys(failed))
+		for _, id := range ids {
+			if c.declared[id] || c.namesValue(failed, id) {
+				replied[failed[id]] = true
+			}
+		}
+		// One problem per item, under its shortest name: its plain name, not
+		// a display label such as "0.42: slope".
+		slices.SortStableFunc(ids, func(a, b string) int { return len(a) - len(b) })
+		for _, id := range ids {
+			if key := failed[id]; key != "" && !replied[key] {
+				replied[key] = true
+				c.problem("the last review sent back %s: hand it in again corrected under the same name, or withdraw it in replies", id)
+			}
+		}
+	}()
 	for i, r := range rs {
 		id := identity(r.Item)
 		if target, isAlias := prev.Aliases[id]; isAlias {
@@ -383,6 +405,9 @@ func (c *converter) replies(rs []Reply, prev Review) {
 				continue
 			}
 			id = original
+		}
+		if key := failed[id]; key != "" {
+			replied[key] = true
 		}
 		if key := failed[id]; c.column == board.Experimentation && key != "" && (r.Action == "corrected" || r.Action == "withdrawn") {
 			if answered[key] {
@@ -395,14 +420,8 @@ func (c *converter) replies(rs []Reply, prev Review) {
 		case "corrected":
 			// Values are named in a hand-in; a review may also refer to the
 			// same value by its displayed label or earlier identity.
-			if c.column == board.Experimentation && failed[id] != "" {
-				matched := slices.ContainsFunc(c.recs, func(rec NewRecord) bool {
-					v, ok := rec.Body.(review.ValueBody)
-					return ok && failed[identity(v.Name)] == failed[id]
-				})
-				if matched {
-					continue
-				}
+			if c.namesValue(failed, id) {
+				continue
 			}
 			if !c.declared[id] {
 				c.problem("reply %d: corrected, but no item %s is in this hand-in", i+1, r.Item)
@@ -422,4 +441,13 @@ func (c *converter) replies(rs []Reply, prev Review) {
 			c.item("reply", i+1, review.KindWithdrawn, review.WithdrawnBody{Item: key, Reason: r.Reason})
 		}
 	}
+}
+
+// namesValue is whether this Experimentation hand-in declares a value the
+// review knew as the sent-back item id, by its name or another label.
+func (c *converter) namesValue(failed map[string]string, id string) bool {
+	return c.column == board.Experimentation && failed[id] != "" && slices.ContainsFunc(c.recs, func(rec NewRecord) bool {
+		v, ok := rec.Body.(review.ValueBody)
+		return ok && failed[identity(v.Name)] == failed[id]
+	})
 }

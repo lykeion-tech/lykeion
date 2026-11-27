@@ -902,27 +902,6 @@ type LessonFlag struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type LessonJob struct {
-	ID          uuid.UUID  `json:"id"`
-	WorkspaceID uuid.UUID  `json:"workspace_id"`
-	CardID      *uuid.UUID `json:"card_id"`
-	DecisionID  *uuid.UUID `json:"decision_id"`
-	LessonID    *uuid.UUID `json:"lesson_id"`
-	Triggers    []string   `json:"triggers"`
-	DueAt       time.Time  `json:"due_at"`
-	BatchID     string     `json:"batch_id"`
-	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	Failures    int32      `json:"failures"`
-}
-
-type LessonJobInput struct {
-	WorkspaceID    uuid.UUID       `json:"workspace_id"`
-	JobID          uuid.UUID       `json:"job_id"`
-	Versions       json.RawMessage `json:"versions"`
-	RewriteVersion string          `json:"rewrite_version"`
-}
-
 type Member struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	UserID      uuid.UUID `json:"user_id"`

@@ -136,6 +136,11 @@ const workOutputs = "Run Python, R or Julia through `run_code` (a live session, 
 	"Code must perform the claimed work. Placeholder prints are not analytical evidence. Use the run tool's documented code input; do not rely on opening `/dev/stdin`.\n" +
 	"Install any package you need into the study's folder from your code runs, or with `set_up_environment`; it needs no approval.\n"
 
+// planningDefers keeps a planning column from giving up on a question that
+// asks for an analysis: code cannot run here, and that is by design.
+const planningDefers = "The researcher's question is for the whole study. Any analysis, computation or answer it asks for runs in Experimentation, where code runs; this column cannot run code, by design. " +
+	"Read the attached files' names and documentation, and plan from them. Code being unavailable here is never a reason for `could_not_do`.\n\n"
+
 // itemsPrompt describes the item fields of a column's hand-in, and what Jev
 // checks of each.
 func itemsPrompt(column string) string {
@@ -256,9 +261,9 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest, templates ...str
 	fmt.Fprintf(&b, "What the column delivers: %s.\n\n", deliverables[column])
 	switch column {
 	case board.Grounding:
-		b.WriteString("Gather and document evidence. Defer testing predictions, simulations and study scripts to Experimentation. This also applies to delegated tasks.\n\n")
+		b.WriteString("Gather and document evidence. Defer testing predictions, simulations and study scripts to Experimentation. This also applies to delegated tasks.\n" + planningDefers)
 	case board.Hypotheses:
-		b.WriteString("Specify predictions, controls and the test plan before any study scripts run. Defer running experiments to Experimentation, including when delegating.\n\n")
+		b.WriteString("Specify predictions, controls and the test plan before any study scripts run. Defer running experiments to Experimentation, including when delegating.\n" + planningDefers)
 	case board.Validation:
 		b.WriteString("Check the recorded Experimentation work and its replay. Use the exact saved artifact keys when inspecting files. Keep supplementary checks distinct from the original experiment.\n\n")
 	}

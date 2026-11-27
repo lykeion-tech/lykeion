@@ -112,22 +112,6 @@ func (q *Queries) GetUserTypesafeKey(ctx context.Context, userID uuid.UUID) ([]b
 	return ciphertext, err
 }
 
-const getVerificationCode = `-- name: GetVerificationCode :one
-SELECT email, code_hash, expires_at, attempts FROM verification_code WHERE email = $1
-`
-
-func (q *Queries) GetVerificationCode(ctx context.Context, email string) (VerificationCode, error) {
-	row := q.db.QueryRow(ctx, getVerificationCode, email)
-	var i VerificationCode
-	err := row.Scan(
-		&i.Email,
-		&i.CodeHash,
-		&i.ExpiresAt,
-		&i.Attempts,
-	)
-	return i, err
-}
-
 const listTokens = `-- name: ListTokens :many
 SELECT id, prefix, name, expires_at, revoked_at, created_at FROM personal_access_token
 WHERE user_id = $1 ORDER BY created_at DESC

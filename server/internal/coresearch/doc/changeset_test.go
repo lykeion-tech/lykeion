@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+	"unicode/utf16"
 )
 
 func TestChangeSetMatchesCodeMirror(t *testing.T) {
@@ -112,4 +113,101 @@ func TestChangeSetRejectsNullLengthsAndNUL(t *testing.T) {
 			t.Fatalf("accepted %s", raw)
 		}
 	}
+}
+
+// Compose combines sequential edits without requiring the source text. Its
+// section boundaries follow CodeMirror so MapPos retains association semantics.
+func (c ChangeSet) Compose(next ChangeSet) (ChangeSet, error) {
+	if c.NewLen() != next.Len() {
+		return ChangeSet{}, ErrInvalid
+	}
+	a, b := newSectionCursor(c), newSectionCursor(next)
+	type composedSection struct {
+		length, inserted int
+		text             []uint16
+	}
+	sections := []composedSection{}
+	add := func(length, inserted int, text []uint16, join bool) {
+		if length == 0 && inserted <= 0 {
+			return
+		}
+		last := len(sections) - 1
+		if last >= 0 && inserted <= 0 && inserted == sections[last].inserted {
+			sections[last].length += length
+		} else if last >= 0 && length == 0 && sections[last].length == 0 {
+			sections[last].inserted += inserted
+		} else if join && last >= 0 {
+			sections[last].length += length
+			sections[last].inserted += inserted
+		} else {
+			sections = append(sections, composedSection{length: length, inserted: inserted})
+		}
+		if len(text) > 0 {
+			last = len(sections) - 1
+			sections[last].text = append(sections[last].text, text...)
+		}
+	}
+	join := false
+	for !a.done() || !b.done() {
+		if a.inserted == 0 {
+			add(a.length, 0, nil, join)
+			a.next()
+			continue
+		}
+		if b.length == 0 && !b.done() {
+			add(0, b.inserted, b.text, join)
+			b.next()
+			continue
+		}
+		if a.done() || b.done() {
+			return ChangeSet{}, ErrInvalid
+		}
+		n := min(a.outputLength(), b.length)
+		previous := len(sections)
+		if a.inserted < 0 {
+			ins := b.inserted
+			if ins >= 0 && b.offset > 0 {
+				ins = 0
+			}
+			var text []uint16
+			if ins > 0 {
+				text = b.text
+			}
+			add(n, ins, text, join)
+		} else if b.inserted < 0 {
+			length := a.length
+			if a.offset > 0 {
+				length = 0
+			}
+			add(length, n, a.text[a.offset:a.offset+n], join)
+		} else {
+			length, ins := a.length, b.inserted
+			if a.offset > 0 {
+				length = 0
+			}
+			var text []uint16
+			if b.offset > 0 {
+				ins = 0
+			} else {
+				text = b.text
+			}
+			add(length, ins, text, join)
+		}
+		join = (a.inserted > n || b.inserted >= 0 && b.length > n) && (join || len(sections) > previous)
+		a.advanceOutput(n)
+		b.advanceInput(n)
+	}
+	out := ChangeSet{}
+	for _, s := range sections {
+		if s.inserted < 0 {
+			out.sections = append(out.sections, section{length: s.length})
+			continue
+		}
+		if !validUnits(s.text) {
+			return ChangeSet{}, ErrInvalid
+		}
+		text := string(utf16.Decode(s.text))
+		out.sections = append(out.sections, section{s.length, &text})
+	}
+	return out, nil
 }

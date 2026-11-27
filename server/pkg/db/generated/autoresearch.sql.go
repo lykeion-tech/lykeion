@@ -249,23 +249,6 @@ func (q *Queries) AutoresearchWebhookLookup(ctx context.Context, tokenHash strin
 	return i, err
 }
 
-const cardTriggerPayload = `-- name: CardTriggerPayload :one
-SELECT body FROM record WHERE workspace_id = $1 AND card_id = $2 AND kind = 'trigger_payload'
-ORDER BY created_at DESC LIMIT 1
-`
-
-type CardTriggerPayloadParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-}
-
-func (q *Queries) CardTriggerPayload(ctx context.Context, arg CardTriggerPayloadParams) (json.RawMessage, error) {
-	row := q.db.QueryRow(ctx, cardTriggerPayload, arg.WorkspaceID, arg.CardID)
-	var body json.RawMessage
-	err := row.Scan(&body)
-	return body, err
-}
-
 const claimWebhookDeliveries = `-- name: ClaimWebhookDeliveries :many
 SELECT workspace_id::uuid AS workspace_id, delivery_id::uuid AS delivery_id FROM claim_webhook_deliveries($1::int)
 `
@@ -993,46 +976,6 @@ func (q *Queries) ListCollaborators(ctx context.Context, arg ListCollaboratorsPa
 			return nil, err
 		}
 		items = append(items, user_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listDeliveries = `-- name: ListDeliveries :many
-SELECT id, workspace_id, trigger_id, delivery_key, received_at, envelope, state, attempts, lease_until, run_id FROM webhook_delivery WHERE workspace_id = $1 AND trigger_id = $2 ORDER BY received_at
-`
-
-type ListDeliveriesParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	TriggerID   uuid.UUID `json:"trigger_id"`
-}
-
-func (q *Queries) ListDeliveries(ctx context.Context, arg ListDeliveriesParams) ([]WebhookDelivery, error) {
-	rows, err := q.db.Query(ctx, listDeliveries, arg.WorkspaceID, arg.TriggerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []WebhookDelivery
-	for rows.Next() {
-		var i WebhookDelivery
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.TriggerID,
-			&i.DeliveryKey,
-			&i.ReceivedAt,
-			&i.Envelope,
-			&i.State,
-			&i.Attempts,
-			&i.LeaseUntil,
-			&i.RunID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

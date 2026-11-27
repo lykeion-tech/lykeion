@@ -23,7 +23,6 @@ type Bundle struct {
 	Name, Description string
 	Files             map[string][]byte
 }
-type Limits struct{ FileBytes, SupportingBytes, SupportingFiles, ArchiveBytes int }
 
 const (
 	FileBytes       = 1 << 20

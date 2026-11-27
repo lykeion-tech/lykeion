@@ -271,9 +271,8 @@ describe('reading-first recorded run', () => {
     for (const status of ['running', 'dispatched'] as const) {
       const html = await render([], { status });
       expect(html).toContain('run-status-spinner');
-      expect(html).toContain('v-ring2');
-      expect(html).toContain('var(--primary-text)');
-      expect(html).toContain('v-ring3');
+      expect(html).toContain('run-status-ring-right');
+      expect(html).toContain('run-status-ring-left');
     }
     for (const status of ['queued', 'completed', 'failed', 'cancelled'] as const) {
       const html = await render([], { status });

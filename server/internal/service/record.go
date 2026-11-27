@@ -1,14 +1,10 @@
 package service
 
 import (
-	"context"
 	"regexp"
 	"slices"
 
 	"github.com/google/uuid"
-
-	"lykeion/server/internal/store"
-	db "lykeion/server/pkg/db/generated"
 )
 
 // Writer is the role writing a record.
@@ -49,8 +45,3 @@ func MayWrite(role, kind string) error {
 type Invalid string
 
 func (e Invalid) Error() string { return string(e) }
-
-// SupersedeRole retires live records without erasing the historical rows.
-func SupersedeRole(ctx context.Context, tx *store.Tx, card uuid.UUID, column, role string) error {
-	return tx.Q.SupersedeRoleRecords(ctx, db.SupersedeRoleRecordsParams{WorkspaceID: tx.WS, CardID: card, BoardColumn: column, Role: role})
-}
