@@ -119,6 +119,15 @@ export interface ReportNode {
   measurements?: ReportMeasurement[];
   facts?: ReportFact[];
   novelty?: 'contradicts' | 'confirms' | 'new';
+  // A finding whose hypothesis is an estimate: what was measured and how. Its
+  // value is in measurements. Absent on other nodes and from older servers.
+  estimate?: ReportEstimate;
+}
+
+export interface ReportEstimate {
+  unit: string;
+  method: string;
+  reported?: { value: number; source: string; key: string };
 }
 export interface ReportEdge {
   from: string;

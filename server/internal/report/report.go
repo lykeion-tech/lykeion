@@ -82,6 +82,14 @@ type Measurement struct {
 	Output  string         `json:"output"`
 }
 
+// NodeEstimate is what a finding measured and how, and any value a source
+// already reports for it.
+type NodeEstimate struct {
+	Unit     string                `json:"unit"`
+	Method   string                `json:"method"`
+	Reported *review.ReportedValue `json:"reported,omitempty"`
+}
+
 type Node struct {
 	ID      string          `json:"id"`   // "question", or "rec:<record key>", "run:<agent_run id>", "obj:<record id>", "doubt:<column>:<item key>"
 	Kind    string          `json:"kind"` // question|paper|dataset|hypothesis|experiment|output|finding|objection|doubt
@@ -106,6 +114,9 @@ type Node struct {
 	// output is a figure or a table.
 	ContentType  string        `json:"content_type,omitempty"`
 	Measurements []Measurement `json:"measurements,omitempty"`
+	// Estimate is set on a finding whose hypothesis is an estimate; its
+	// measured value is in Measurements.
+	Estimate *NodeEstimate `json:"estimate,omitempty"`
 }
 
 type Edge struct {
@@ -328,6 +339,12 @@ func Build(in Input) Report {
 			}
 			if it, ok := itemOf(valReview, h.rec.Key); ok {
 				n.Checks = it.Checks
+			}
+			if hb := records.Body[review.HypothesisBody](h.rec); review.IsEstimate(hb) {
+				n.Estimate = &NodeEstimate{Method: hb.Method, Reported: hb.Reported}
+				if hb.Measure != nil {
+					n.Estimate.Unit = hb.Measure.Unit
+				}
 			}
 			f.chain[h.rec.Key] = true
 			for _, k := range h.grounds {

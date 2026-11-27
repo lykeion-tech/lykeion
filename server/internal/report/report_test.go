@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -557,5 +558,31 @@ func TestBuildShowsBoundMeasurementsOnExactOutputAndFinding(t *testing.T) {
 				t.Errorf("report should link only the verified output: %+v", r.Edges)
 			}
 		})
+	}
+}
+
+func TestBuildEstimateFinding(t *testing.T) {
+	s := newStudy("hypotheses", "validation")
+	lo, hi := 0.1, 0.2
+	s.rec("hypotheses", "hypothesis", "r1", 1, nil, review.HypothesisBody{Text: "PR at 65", Prediction: review.Prediction{Shape: "estimate"},
+		Measure: &review.Measure{ID: "prob_pr_65", Name: "PR probability at 65", Unit: "fraction"}, Method: "logistic regression on age",
+		Reported: &review.ReportedValue{Value: 0.39, Source: "doi:10.1/a", Key: "p1"}})
+	s.rec("hypotheses", "hypothesis", "r2", 1, nil, review.HypothesisBody{Text: "A range", Prediction: review.Prediction{Shape: "range", Low: &lo, High: &hi, Uncertainty: "u"}})
+	s.rec("hypotheses", "review", "r3", 1, nil, review.Result{Column: "hypotheses", Decision: review.DecidePass, Items: []review.Item{
+		{Key: "r1", Status: review.Pass}, {Key: "r2", Status: review.Pass}}})
+	s.rec("validation", "validation_status", "r4", 4, nil, map[string]any{"hypothesis": "PR at 65", "status": "supported", "reasons": []string{"measured 0.395 fraction by logistic regression on age; reproduced on replay"}, "final": true})
+	s.rec("validation", "validation_status", "r5", 4, nil, map[string]any{"hypothesis": "A range", "status": "supported", "final": true})
+	r := Build(s.in)
+	f := nodeOf(t, r, "rec:r4")
+	want := NodeEstimate{Unit: "fraction", Method: "logistic regression on age", Reported: &review.ReportedValue{Value: 0.39, Source: "doi:10.1/a", Key: "p1"}}
+	if f.Status != "supported" || f.Estimate == nil || f.Estimate.Unit != want.Unit || f.Estimate.Method != want.Method || *f.Estimate.Reported != *want.Reported {
+		t.Fatalf("estimate finding: %+v %+v", f, f.Estimate)
+	}
+	if g := nodeOf(t, r, "rec:r5"); g.Estimate != nil {
+		t.Fatalf("range finding got an estimate: %+v", g.Estimate)
+	}
+	raw, _ := json.Marshal(nodeOf(t, r, "rec:r5"))
+	if strings.Contains(string(raw), `"estimate"`) {
+		t.Fatalf("a range finding's JSON names estimate: %s", raw)
 	}
 }

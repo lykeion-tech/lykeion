@@ -176,7 +176,9 @@ export function sectionFor(report: StudyReport, nodeId: string) {
               inline
                 ? { label: 'Study', text: studyDisplayTitle(report.title) }
                 : { label: 'Run', text: node.run_id },
-              ...(node.column ? [{ label: inline ? 'Stage' : 'Column', text: columnName(node.column) }] : []),
+              ...(node.column
+                ? [{ label: inline ? 'Stage' : 'Column', text: columnName(node.column) }]
+                : []),
             ],
           },
         ]
@@ -244,6 +246,21 @@ export function sectionFor(report: StudyReport, nodeId: string) {
   }
   switch (node.kind) {
     case 'finding': {
+      if (node.estimate) {
+        const e = node.estimate;
+        const row = (label: string): Row => ({ kind: 'detail', label, detail: [] });
+        folds.push({
+          title: 'Estimate',
+          summary: e.unit,
+          rows: [
+            row(`Method: ${e.method}`),
+            row(`Unit: ${e.unit}`),
+            ...(e.reported
+              ? [row(`Published value: ${e.reported.value} (${e.reported.source})`)]
+              : []),
+          ],
+        });
+      }
       if (node.status === 'inconclusive' || node.status === 'invalid') {
         folds.push({
           title: node.status === 'inconclusive' ? 'Why inconclusive' : 'Why invalid',
@@ -416,7 +433,10 @@ export function sectionFor(report: StudyReport, nodeId: string) {
       folds.push(linkFold('Hypotheses', out(node.id, 'tests')));
       break;
   }
-  return { node, status: statusOf(node.status, node.kind), folds };
+  const status = statusOf(node.status, node.kind);
+  // An estimate has no prediction to support: say what it is.
+  if (node.estimate && node.status === 'supported') status.word = status.srText = 'Measured';
+  return { node, status, folds };
 }
 
 export function overviewOf(report: StudyReport) {
