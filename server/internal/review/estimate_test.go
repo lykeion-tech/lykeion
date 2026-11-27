@@ -1,11 +1,14 @@
 package review
 
 import (
+	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 
 	"lykeion/server/internal/board"
+	db "lykeion/server/pkg/db/generated"
 )
 
 const estMeasure = `{"id":"prob_pr_65","name":"predicted probability of PR at 65","unit":"fraction"}`
@@ -58,5 +61,71 @@ func TestOldHypothesisBodiesSerializeUnchanged(t *testing.T) {
 	}
 	if !IsEstimate(HypothesisBody{Prediction: Prediction{Shape: "estimate"}}) || IsEstimate(HypothesisBody{Prediction: Prediction{Shape: "range"}}) {
 		t.Error("IsEstimate")
+	}
+}
+
+func estHyp(t *testing.T, key string, cites ...string) db.Record {
+	return rec(t, key, KindHypothesis, HypothesisBody{Text: "estimate " + key,
+		Prediction: Prediction{Shape: "estimate"}, Cites: cites,
+		Measure:  &Measure{ID: "prob_pr_65", Name: "PR probability at 65", Unit: "fraction"},
+		Method:   "logistic regression of PR on age, all patients",
+		Reported: &ReportedValue{Value: 0.39, Source: "doi:10.1/a", Key: "p1"}})
+}
+
+func TestEstimateQuestions(t *testing.T) {
+	a := &fakeAsker{}
+	r, err := Hypotheses(context.Background(), a, HypothesesInput{Question: "q", Items: []db.Record{estHyp(t, "e1", "p1")}, Cited: citedPaper(t, "p1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"fits":      "Does the research question ask for this quantity to be measured, rather than for a claim to be tested?",
+		"justified": "Does the cited evidence justify measuring this quantity this way?",
+		"specified": "Is the method specified precisely enough that another analyst would compute the same number?",
+	}
+	if len(a.noul) != 1 || !maps.Equal(a.noul[0].Questions, want) {
+		t.Fatalf("questions: %+v", a.noul)
+	}
+	s := a.noul[0].State
+	for _, w := range []string{"Estimate: PR probability at 65 (fraction) by logistic regression of PR on age, all patients", "Published value: 0.39 (doi:10.1/a)"} {
+		if !strings.Contains(s, w) {
+			t.Errorf("state lacks %q: %s", w, s)
+		}
+	}
+	for _, c := range r.Items[0].Checks {
+		if c.ID == "lookup" || c.Inverted {
+			t.Errorf("estimate asked lookup: %+v", c)
+		}
+	}
+}
+
+func TestMixedEstimateAndPredictionWeakest(t *testing.T) {
+	a := &fakeAsker{choice: "hyp:2"}
+	r, err := Hypotheses(context.Background(), a, HypothesesInput{Question: "q",
+		Items: []db.Record{hyp(t, "h1", Control{Text: "v"}, "p1"), estHyp(t, "e2", "p1")}, Cited: citedPaper(t, "p1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.noul) != 2 || a.noul[0].Questions["lookup"] == "" || a.noul[1].Questions["fits"] == "" || a.noul[1].Questions["lookup"] != "" {
+		t.Fatalf("question sets: %+v", a.noul)
+	}
+	if len(a.choices) != 1 || r.Weakest == nil || r.Weakest.Key != "e2" {
+		t.Fatalf("weakest over both: %+v %+v", a.choices, r.Weakest)
+	}
+}
+
+func TestEstimateLowFitsFails(t *testing.T) {
+	a := &fakeAsker{p: func(_, k string) float64 {
+		if k == "fits" {
+			return 0.1
+		}
+		return 0.9
+	}}
+	r, err := Hypotheses(context.Background(), a, HypothesesInput{Question: "q", Items: []db.Record{estHyp(t, "e1", "p1")}, Cited: citedPaper(t, "p1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Items[0].Status != Fail {
+		t.Fatalf("a test question handed in as an estimate passed: %+v", r.Items[0])
 	}
 }

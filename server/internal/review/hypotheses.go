@@ -29,6 +29,28 @@ var hypothesisQuestions = map[string]string{
 	"lookup":      "Does the cited evidence already report a test of this exact prediction?",
 }
 
+// estimateQuestions replace hypothesisQuestions for an estimate: its method is
+// judged, not a predicted value, and a replication is a valid study, so it is
+// never asked lookup.
+var estimateQuestions = map[string]string{
+	"fits":      "Does the research question ask for this quantity to be measured, rather than for a claim to be tested?",
+	"justified": "Does the cited evidence justify measuring this quantity this way?",
+	"specified": "Is the method specified precisely enough that another analyst would compute the same number?",
+}
+
+// estimateLine renders an estimate's measure, method and any published value.
+func estimateLine(b HypothesisBody) string {
+	var name, unit string
+	if b.Measure != nil {
+		name, unit = b.Measure.Name, b.Measure.Unit
+	}
+	s := fmt.Sprintf("Estimate: %s (%s) by %s", name, unit, b.Method)
+	if r := b.Reported; r != nil {
+		s += fmt.Sprintf("\nPublished value: %g (%s)", r.Value, r.Source)
+	}
+	return s
+}
+
 // predictionLine renders a prediction as one line.
 func predictionLine(p Prediction) string {
 	switch p.Shape {
@@ -77,7 +99,10 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 			text := b.Text + "\n" + predictionLine(b.Prediction)
 			questions := hypothesisQuestions
 			ids := []string{"falsifiable", "supported", "lookup"}
-			if c := b.Comparison; c != nil {
+			if IsEstimate(b) {
+				text = b.Text + "\n" + estimateLine(b)
+				questions, ids = estimateQuestions, []string{"fits", "justified", "specified"}
+			} else if c := b.Comparison; c != nil {
 				questions = maps.Clone(questions)
 				questions["comparison"] = "Do the measure, threshold or control, and outcome labels of the frozen comparison agree with the written prediction?"
 				ids = append(ids, "comparison")
