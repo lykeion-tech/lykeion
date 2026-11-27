@@ -77,6 +77,10 @@ func TestExperimentationBindingRoundTrip(t *testing.T) {
 		{`"field":"/summary/a~1b/~0c/0",`, ``, "field and measure go together"},
 		{`"value":"0.42"`, `"value":"steel"`, "bound value must be a number"},
 		{`"value":"0.42"`, `"value":"NaN"`, "bound value must be a number"},
+		// Review reads only these forms as numbers (flow numberText).
+		{`"value":"0.42"`, `"value":"+0.42"`, "bound value must be a number"},
+		{`"value":"0.42"`, `"value":".42"`, "bound value must be a number"},
+		{`"value":"0.42"`, `"value":"42."`, "bound value must be a number"},
 	} {
 		_, probs := Parse(Experimentation, []byte(strings.Replace(raw, tc.old, tc.invalid, 1)))
 		if !strings.Contains(strings.Join(probs, "\n"), tc.want) {

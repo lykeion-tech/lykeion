@@ -622,6 +622,8 @@ func within(s string, max int) bool {
 
 // decimal is the plain or exponent number a bound value reports; review
 // compares it with the saved JSON field.
-var decimal = regexp.MustCompile(`^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$`)
+// It matches flow's numberText: a number review cannot read would fail
+// binding on every redo.
+var decimal = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$`)
 
 func isNumber(s string) bool { return decimal.MatchString(strings.TrimSpace(s)) }
