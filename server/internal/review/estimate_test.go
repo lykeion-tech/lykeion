@@ -3,12 +3,14 @@ package review
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"strconv"
 	"strings"
 	"testing"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -99,6 +101,32 @@ func TestEstimateQuestions(t *testing.T) {
 		if c.ID == "lookup" || c.Inverted {
 			t.Errorf("estimate asked lookup: %+v", c)
 		}
+	}
+}
+
+func TestEstimateReviewShrinksOversizedEvidence(t *testing.T) {
+	in := HypothesesInput{Question: "What is the rate?", Items: []db.Record{estHyp(t, "e1", "p1")},
+		Cited: map[string]db.Record{"p1": rec(t, "p1", "call", map[string]string{"answer": strings.Repeat("source data 0123456789 ", 5000)})}}
+	judge := &fakeAsker{maxState: MaxState / 8}
+	r, err := Hypotheses(t.Context(), judge, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(judge.noul) < 2 || r.Items[0].Status != Pass {
+		t.Fatalf("got %d requests and review %+v", len(judge.noul), r.Items)
+	}
+	first, last := judge.noul[0], judge.noul[len(judge.noul)-1]
+	if len(last.State) >= len(first.State) || !maps.Equal(first.Questions, last.Questions) {
+		t.Fatal("retry must shrink the evidence and keep the judgment questions")
+	}
+	for _, want := range []string{"What is the rate?", "logistic regression of PR on age", "source data", "[cut]", "Only the visible excerpts are available for this judgment."} {
+		if !strings.Contains(last.State, want) {
+			t.Errorf("smaller state lost %q", want)
+		}
+	}
+	judge = &fakeAsker{maxState: 1}
+	if _, err := Hypotheses(t.Context(), judge, in); !errors.Is(err, jev.ErrTooLong) || len(judge.noul) > 5 {
+		t.Fatalf("permanently oversized state: %v after %d attempts", err, len(judge.noul))
 	}
 }
 

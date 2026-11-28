@@ -3,11 +3,13 @@ package review
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/jev"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -122,7 +124,18 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 				}
 				text += fmt.Sprintf("\nFrozen outcome labels (measure compared with threshold or control), less: %q, equal: %q, greater: %q", c.Less, c.Equal, c.Greater)
 			}
-			ps, err := a.Noul(ctx, ItemState("Hypotheses", text, evidence, MaxState), questions)
+			var ps map[string]float64
+			var err error
+			for budget := MaxState; ; budget /= 2 {
+				note := ""
+				if budget < MaxState {
+					note = "Only the visible excerpts are available for this judgment. [cut] marks omitted material.\n"
+				}
+				ps, err = a.Noul(ctx, note+ItemState("Hypotheses", text, evidence, budget-len(note)), questions)
+				if !errors.Is(err, jev.ErrTooLong) || budget/2 < 8<<10 {
+					break
+				}
+			}
 			if err != nil {
 				return Result{}, err
 			}

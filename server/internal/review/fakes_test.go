@@ -21,15 +21,19 @@ type choiceCall struct {
 // fakeAsker answers every Noul question with p(state, key), and every Choice
 // with choice at probability choiceP, or 0.6.
 type fakeAsker struct {
-	p       func(state, key string) float64
-	choice  string
-	choiceP float64
-	noul    []noulCall
-	choices []choiceCall
+	p        func(state, key string) float64
+	choice   string
+	choiceP  float64
+	maxState int
+	noul     []noulCall
+	choices  []choiceCall
 }
 
 func (f *fakeAsker) Noul(_ context.Context, state string, qs map[string]string) (map[string]float64, error) {
 	f.noul = append(f.noul, noulCall{state, qs})
+	if f.maxState > 0 && len(state) > f.maxState {
+		return nil, jev.ErrTooLong
+	}
 	out := map[string]float64{}
 	for k := range qs {
 		out[k] = 0.9
