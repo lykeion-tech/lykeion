@@ -161,3 +161,43 @@ func TestOutcomeComparisonRoundTrip(t *testing.T) {
 	parsed(t, Hypotheses, wrap(hypothesis))
 	parsed(t, Hypotheses, wrap(hypothesis+`,"comparison":null`))
 }
+
+func TestEstimateHandInRoundTrip(t *testing.T) {
+	const est = `{"text":"PR probability at 65","prediction_shape":"estimate","measure":{"id":"prob_pr_65","name":"PR probability at 65","unit":"fraction"},"method":"logistic regression of PR on age, all patients","reported":{"value":0.39,"cite":"10.1001/b"},"control":null,"no_control":null,"cites":["doi:10.1001/a"]}`
+	wrap := func(h string) string {
+		return `{"status":"done","answer":"A measurement plan.","hypotheses":[` + h + `]}`
+	}
+	h := parsed(t, Hypotheses, wrap(est))
+	recs, probs := Convert(Hypotheses, true, h, studyEvidence(), Review{})
+	if len(probs) != 0 || !slices.Equal(kinds(recs), []string{"hypothesis", "summary"}) {
+		t.Fatalf("records %v, problems %v", kinds(recs), probs)
+	}
+	b := body(t, recs[0])
+	rep, _ := b["reported"].(map[string]any)
+	if b["prediction"].(map[string]any)["shape"] != "estimate" || b["method"] != "logistic regression of PR on age, all patients" ||
+		rep["key"] != "call:c1" || rep["source"] != "doi:10.1001/b" || rep["value"] != 0.39 {
+		t.Fatalf("stored estimate = %v", b)
+	}
+	// The reported value's source is cited, so review checks it is current and puts it to Jev.
+	if cites := b["cites"].([]any); !slices.Contains(cites, any("call:c1")) {
+		t.Fatalf("reported source not among cites: %v", cites)
+	}
+	_, probs = Convert(Hypotheses, true, parsed(t, Hypotheses, wrap(strings.Replace(est, `"cite":"10.1001/b"`, `"cite":"10.8888/made-up"`, 1))), studyEvidence(), Review{})
+	if !strings.Contains(strings.Join(probs, "\n"), "hypothesis 1: reported cite 10.8888/made-up is neither") {
+		t.Fatalf("unresolved reported cite: %q", probs)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(Schema(Hypotheses)), &schema); err != nil {
+		t.Fatal(err)
+	}
+	item := schema["properties"].(map[string]any)["hypotheses"].(map[string]any)["items"].(map[string]any)
+	props := item["properties"].(map[string]any)
+	if !slices.Contains(props["prediction_shape"].(map[string]any)["enum"].([]any), any("estimate")) {
+		t.Errorf("prediction_shape enum lacks estimate")
+	}
+	for _, k := range []string{"method", "reported"} {
+		if _, ok := props[k]; !ok || !slices.Contains(item["required"].([]any), any(k)) {
+			t.Errorf("%s is not a required schema field", k)
+		}
+	}
+}

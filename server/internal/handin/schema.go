@@ -12,6 +12,7 @@ type obj = map[string]any
 
 func str() obj             { return obj{"type": "string"} }
 func nullStr() obj         { return obj{"type": []string{"string", "null"}} }
+func num() obj             { return obj{"type": "number"} }
 func nullNum() obj         { return obj{"type": []string{"number", "null"}} }
 func enum(v ...string) obj { return obj{"type": "string", "enum": v} }
 func list(item any) obj    { return obj{"type": "array", "items": item} }
@@ -79,7 +80,9 @@ var schemas = map[Kind]string{
 		"hypotheses", list(object(
 			"text", str(),
 			"measure", desc(nullObj(object("id", str(), "name", str(), "unit", str())), "Declare the predicted measure with a short lowercase id, name and unit, or null if no measure can be declared."),
-			"prediction_shape", enum("direction", "outcomes", "range"),
+			"prediction_shape", enum("direction", "outcomes", "range", "estimate"),
+			"method", desc(nullStr(), "For an estimate: how the quantity is computed, precisely enough that another analyst gets the same number. Null otherwise."),
+			"reported", desc(nullObj(object("value", num(), "cite", str())), "For an estimate: a value an earlier source already reports for this measure, with that source's id. Null otherwise."),
 			"direction", obj{"type": []string{"string", "null"}, "enum": []any{"increase", "decrease", "no_change", nil}},
 			"outcomes", list(str()),
 			"comparison", desc(nullObj(object("threshold", nullNum(), "control", nullStr(), "less", str(), "equal", str(), "greater", str())), "For outcomes already defined by a numeric comparison, set either the threshold in measure units or the exact planned control value name. Map less, equal and greater to registered outcome labels. Otherwise null."),

@@ -548,3 +548,29 @@ it('shows a declared measure and links only the exact output record', () => {
     false,
   );
 });
+
+it('labels an estimate finding Measured and shows its method, keeping counts', () => {
+  const estimate = {
+    unit: 'fraction',
+    method: 'logistic regression on age',
+    reported: { value: 0.39, source: 'doi:10.1/a', key: 'p1' },
+  };
+  const withEstimate = report();
+  withEstimate.nodes.push(
+    node({ id: 'rec:e1', kind: 'finding', label: 'PR at 65', status: 'supported', estimate }),
+  );
+  const s = sectionFor(withEstimate, 'rec:e1');
+  expect(s?.status.word).toBe('Measured');
+  const fold = s?.folds.find((f) => f.title === 'Estimate');
+  expect(fold?.rows.map((r) => (r.kind === 'detail' ? r.label : ''))).toEqual([
+    'Method: logistic regression on age',
+    'Unit: fraction',
+    'Published value: 0.39 (doi:10.1/a)',
+  ]);
+  const plain = report();
+  plain.nodes.push(node({ id: 'rec:e1', kind: 'finding', label: 'PR at 65', status: 'supported' }));
+  const p = sectionFor(plain, 'rec:e1');
+  expect(p?.status.word).toBe('Supported');
+  expect(p?.folds.some((f) => f.title === 'Estimate')).toBe(false);
+  expect(overviewOf(withEstimate).supported).toBe(overviewOf(plain).supported);
+});

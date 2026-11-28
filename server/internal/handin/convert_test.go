@@ -610,3 +610,26 @@ func TestARedoMustAnswerEverySentBackItem(t *testing.T) {
 		t.Errorf("first attempt: %q", probs)
 	}
 }
+
+// Final review: an estimate is assessed by its measurement alone; a control
+// or test would make the finding invalid with no way for Experimentation to fix it.
+func TestEstimateAssessmentNamesOnlyItsMeasurement(t *testing.T) {
+	e := NewEvidence([]db.Record{
+		rec(board.Hypotheses, "hypothesis", "r3", map[string]any{"text": "PR at 65", "prediction": map[string]any{"shape": "estimate"}}),
+		rec(board.Experimentation, "value", "r5", map[string]any{"name": "prob", "value": "0.395"}),
+		rec(board.Experimentation, "value", "r6", map[string]any{"name": "baseline", "value": "0.1"}),
+	})
+	e.Mode = "runs"
+	for raw, bad := range map[string]bool{
+		`{"hypothesis":"PR at 65","measurement":"prob","control":null,"observed":null,"test":null}`:                                                                     false,
+		`{"hypothesis":"PR at 65","measurement":"prob","control":"baseline","observed":null,"test":null}`:                                                               true,
+		`{"hypothesis":"PR at 65","measurement":"prob","control":null,"observed":null,"test":{"kind":"t","statistic":2.31,"df1":28,"df2":null,"p":0.03,"p_bound":"="}}`: true,
+	} {
+		h := parsed(t, Validation, `{`+validEmpty[:len(validEmpty)-len(`,"replies":[]`)]+`,"assessments":[`+raw+`],"verdicts":[],"flagged_errors":[],"replies":[]}`)
+		_, probs := Convert(Validation, true, h, e, Review{})
+		got := strings.Contains(strings.Join(probs, "\n"), "an estimate is assessed by its measurement alone")
+		if got != bad {
+			t.Errorf("%s: problems %q", raw, probs)
+		}
+	}
+}

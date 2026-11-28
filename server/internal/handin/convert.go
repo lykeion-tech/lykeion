@@ -185,22 +185,29 @@ func (c *converter) hypotheses(h HandIn, carried []review.Measure) {
 		}
 		cites, ok := []string{}, true
 		for _, id := range x.Cites {
-			if key, g := c.ev.Grounding(id); g {
-				cites = append(cites, key)
-				continue
-			}
-			calls, found := c.calls(id)
-			if read := c.ev.AttachmentCalls(id); len(read) > 0 {
-				calls, found = read, true
-			}
+			keys, found := c.resolveCite(id)
 			if !found {
 				c.problem("hypothesis %d: cite %s is neither a Grounding paper or dataset, a file attached to the study, nor a source recorded in this study", i+1, id)
 				ok = false
 				continue
 			}
-			for _, k := range calls {
+			for _, k := range keys {
 				if !slices.Contains(cites, k) {
 					cites = append(cites, k)
+				}
+			}
+		}
+		var reported *review.ReportedValue
+		if r := x.Reported; r != nil {
+			keys, found := c.resolveCite(r.Cite)
+			if !found || len(keys) == 0 {
+				c.problem("hypothesis %d: reported cite %s is neither a Grounding paper or dataset, a file attached to the study, nor a source recorded in this study", i+1, r.Cite)
+				ok = false
+			} else {
+				reported = &review.ReportedValue{Value: r.Value, Source: NormID(r.Cite), Key: keys[0]}
+				// Cited too, so review checks the source is current and Jev reads it.
+				if !slices.Contains(cites, keys[0]) {
+					cites = append(cites, keys[0])
 				}
 			}
 		}
@@ -213,8 +220,23 @@ func (c *converter) hypotheses(h HandIn, carried []review.Measure) {
 			c.problem("hypothesis %d: cite a Grounding paper or dataset of this study, a file attached to it, or a source you looked up through Lykeion's tools", i+1)
 			continue
 		}
-		c.item("hypothesis", i+1, review.KindHypothesis, x.Body(cites))
+		b := x.Body(cites)
+		b.Reported = reported
+		c.item("hypothesis", i+1, review.KindHypothesis, b)
 	}
+}
+
+// resolveCite is the records a hypothesis cite stands for: a Grounding paper
+// or dataset, or the calls that read an attachment or looked up a source.
+func (c *converter) resolveCite(id string) ([]string, bool) {
+	if key, g := c.ev.Grounding(id); g {
+		return []string{key}, true
+	}
+	calls, found := c.calls(id)
+	if read := c.ev.AttachmentCalls(id); len(read) > 0 {
+		calls, found = read, true
+	}
+	return calls, found
 }
 
 func (c *converter) experimentation(h HandIn) {
@@ -298,6 +320,11 @@ func (c *converter) validation(h HandIn) {
 		ok := true
 		if !c.ev.Hypothesis(a.Hypothesis) {
 			c.problem("assessment %d: hypothesis %s matches no hypothesis of this study", i+1, a.Hypothesis)
+			ok = false
+		}
+		if c.ev.Estimate(a.Hypothesis) && (a.Control != nil || a.Observed != nil || a.Test != nil) {
+			// Review would make it invalid, and Experimentation cannot fix an assessment.
+			c.problem("assessment %d: an estimate is assessed by its measurement alone: leave control, observed and test null", i+1)
 			ok = false
 		}
 		for _, v := range []struct {

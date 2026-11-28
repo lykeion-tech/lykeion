@@ -4,6 +4,7 @@ package review
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -43,7 +44,7 @@ type NoQualifyingBody struct {
 	Text string `json:"text"`
 }
 type Prediction struct {
-	Shape       string   `json:"shape"`               // "direction" | "outcomes" | "range"
+	Shape       string   `json:"shape"`               // "direction" | "outcomes" | "range" | "estimate"
 	Direction   string   `json:"direction,omitempty"` // "increase" | "decrease" | "no_change"
 	Outcomes    []string `json:"outcomes,omitempty"`  // 2+ named outcomes
 	Chosen      string   `json:"chosen,omitempty"`    // one of Outcomes
@@ -70,7 +71,23 @@ type HypothesisBody struct {
 	Cites      []string           `json:"cites"` // at least one
 	Measure    *Measure           `json:"measure,omitempty"`
 	Comparison *OutcomeComparison `json:"comparison,omitempty"`
+	// An estimate's method and any value a source already reports for it.
+	Method   string         `json:"method,omitempty"`
+	Reported *ReportedValue `json:"reported,omitempty"`
 }
+
+// ReportedValue is a value an earlier source reports for an estimate's
+// measure: Source is the id as handed in, Key the record it resolved to.
+type ReportedValue struct {
+	Value  float64 `json:"value"`
+	Source string  `json:"source"`
+	Key    string  `json:"key"`
+}
+
+// IsEstimate is whether a hypothesis measures a quantity instead of
+// predicting it.
+func IsEstimate(b HypothesisBody) bool { return b.Prediction.Shape == "estimate" }
+
 type OutputsBody struct {
 	Files []string `json:"files"` // names of the study's saved output files
 }
@@ -179,7 +196,7 @@ func Validate(kind, column string, body []byte) error {
 	case KindHypothesis:
 		var b HypothesisBody
 		if msg = decode(dec, &b); msg == "" {
-			msg = all(text(b.Text), prediction(b.Prediction), control(b.Control),
+			msg = all(text(b.Text), prediction(b.Prediction), estimateProblem(b),
 				check(len(b.Cites) >= 1, "a hypothesis cites at least one record"), measureProblem(b.Measure), comparisonProblem(b))
 		}
 	case KindOutputs:
@@ -266,8 +283,24 @@ func prediction(p Prediction) string {
 		return check(len(p.Outcomes) >= 2 && slices.Contains(p.Outcomes, p.Chosen), "an outcomes prediction needs 2 or more outcomes and a chosen one among them")
 	case "range":
 		return all(check(p.Low != nil && p.High != nil && *p.Low < *p.High, "a range prediction needs low < high"), check(p.Uncertainty != "", "a range prediction needs an uncertainty"))
+	case "estimate":
+		return check(p.Direction == "" && len(p.Outcomes) == 0 && p.Chosen == "" && p.Low == nil && p.High == nil && p.Uncertainty == "", "an estimate predicts no value: leave direction, outcomes, low, high and uncertainty empty")
 	}
-	return "prediction shape must be direction, outcomes or range"
+	return "prediction shape must be direction, outcomes, range or estimate"
+}
+
+// estimateProblem holds an estimate to its measure and method, without a
+// control or comparison, and every other shape to its control and no method.
+func estimateProblem(b HypothesisBody) string {
+	if !IsEstimate(b) {
+		return all(control(b.Control), check(b.Method == "" && b.Reported == nil, "only an estimate has a method or a reported value"))
+	}
+	m := strings.TrimSpace(b.Method)
+	return all(check(b.Measure != nil, "an estimate needs a measure"),
+		check(m != "", "an estimate needs a method"),
+		check(utf8.RuneCountInString(m) <= 2000, "an estimate's method must be at most 2000 characters"),
+		check(b.Comparison == nil, "an estimate predicts no value: leave comparison null"),
+		check(b.Reported == nil || !math.IsNaN(b.Reported.Value) && !math.IsInf(b.Reported.Value, 0), "a reported value must be a finite number"))
 }
 
 func control(c Control) string {

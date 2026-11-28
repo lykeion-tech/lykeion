@@ -228,3 +228,31 @@ func TestKeylessExperimentationBindingGate(t *testing.T) {
 		})
 	}
 }
+
+// A unit mismatch blocked two live studies after their redo: the check named
+// neither unit, so the agent could not copy the declared one. It names both.
+func TestUnitMismatchNamesBothUnits(t *testing.T) {
+	const path = "outputs/metrics.json"
+	const contents = `{"share":{"value":36.65,"measure":"share","unit":"percent"}}`
+	producer := uuid.New()
+	runBody := fmt.Appendf(nil, `{"tool":"run_script","exit_status":0,"output_hashes":{"%s":"%x"}}`, path, sha256.Sum256([]byte(contents)))
+	outputBody := fmt.Appendf(nil, `{"name":"%s","sha256":"%x"}`, path, sha256.Sum256([]byte(contents)))
+	runs := []db.Record{{Kind: "run", BoardColumn: board.Experimentation, Key: "x1", Body: runBody, AgentRunID: &producer, Round: 2}}
+	field, id := "/share/value", "share"
+	b, _ := json.Marshal(review.ValueBody{Name: "share", File: path, Value: "36.65", Field: &field, Measure: &id, Cites: []string{"run:x1"}})
+	work := []db.Record{
+		{Kind: "output", BoardColumn: board.Experimentation, Key: "o1", Body: outputBody, AgentRunID: &producer, Round: 2},
+		{Kind: "value", Key: "r1", Body: b},
+	}
+	measure := review.Measure{ID: "share", Name: "Share significant", Unit: "percent of miRNAs tested"}
+	values := experimentationValues(work, runs, nil, map[string]string{"o1": contents}, map[string]review.Measure{"share": measure})
+	var detail string
+	for _, c := range values[0].Binding {
+		if c.ID == "scale" && c.Status == review.Fail {
+			detail = c.Detail
+		}
+	}
+	if !strings.Contains(detail, `"percent"`) || !strings.Contains(detail, `"percent of miRNAs tested"`) {
+		t.Fatalf("scale detail = %q", detail)
+	}
+}

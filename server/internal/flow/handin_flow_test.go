@@ -77,14 +77,16 @@ func TestMemberSettlementWakesNoOne(t *testing.T) {
 	}
 }
 
+// Outside the planning columns a could_not_do holds the study at once;
+// planning columns redo once first (TestPlanningCouldNotDoIsRedoneOnce).
 func TestCouldNotDoAsksTheOwner(t *testing.T) {
 	l := newLab(t)
-	c := l.study(t, "hypotheses", true, nil)
+	c := l.study(t, "experimentation", true, nil)
 	l.e.Kick(l.ws, c.ID)
 	lead := l.latestRun(t, c.ID, "leader")
 	const why = "GEO has no aged mice"
 	l.in(t, func(tx *store.Tx) error {
-		_, err := records.WriteAs(context.Background(), tx, service.Writer{Card: c.ID, AgentRun: lead.ID, Column: "hypotheses", Role: "leader", Round: c.Round},
+		_, err := records.WriteAs(context.Background(), tx, service.Writer{Card: c.ID, AgentRun: lead.ID, Column: "experimentation", Role: "leader", Round: c.Round},
 			"hand_in", map[string]any{"agent_run_id": lead.ID, "attempt": 1, "hand_in": map[string]any{"status": "could_not_do", "answer": "", "reason": why}})
 		return err
 	})

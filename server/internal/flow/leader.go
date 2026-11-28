@@ -216,6 +216,9 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 			if h.BlockedByEnvironment != nil && slices.Contains(h.EnvironmentFailures, *h.BlockedByEnvironment) {
 				return e.holdEnvironment(ctx, tx, c, ptrOr(h.Reason))
 			}
+			if planning(c.BoardColumn) && c.Redos == 0 {
+				return e.redoPlanning(ctx, tx, c, ptrOr(h.Reason))
+			}
 			return e.askOwner(ctx, tx, c, ptrOr(h.Reason))
 		}
 		if t.Status == "completed" && h != nil && h.Status == "ask" && h.Decision != nil {
@@ -286,6 +289,21 @@ func (e *Engine) holdEnvironment(ctx context.Context, tx *store.Tx, c db.Card, r
 		return err
 	}
 	return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": c.BoardColumn, "state": "blocked"})
+}
+
+func planning(column string) bool { return column == board.Grounding || column == board.Hypotheses }
+
+// redoPlanning redoes a planning column once after a could_not_do: leads have
+// given up on one because it cannot run code, which is by design there.
+func (e *Engine) redoPlanning(ctx context.Context, tx *store.Tx, c db.Card, reason string) error {
+	next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State, Round: c.Round + 1, Redos: 1,
+		HandoffNote: "The last attempt handed in could_not_do: " + reason + "\n" +
+			"This column cannot run code, by design: any analysis or computation the question asks for runs in Experimentation. " +
+			"Hand in this column's own work. Hand in could_not_do only if something outside the work blocks it, such as missing data."}
+	if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State})
 }
 
 // askOwner holds a study whose lead could not do its column, as a block

@@ -84,7 +84,7 @@ func Statuses(hs []HypothesisBody, as []Assessment, m map[string]Measured, tests
 		default:
 			r.Status, r.Reasons = byShape(h, a, m)
 		}
-		if none := strings.TrimSpace(h.Control.None); r.Status == Supported && none != "" {
+		if none := strings.TrimSpace(h.Control.None); r.Status == Supported && none != "" && !IsEstimate(h) {
 			r.Status = Caveated
 			r.Reasons = append(r.Reasons, "no control: "+none)
 		}
@@ -118,7 +118,9 @@ func assessmentProblems(h HypothesisBody, a Assessment, m map[string]Measured, t
 			bad = append(bad, fmt.Sprintf("the %s %q has no recorded value", role, names[role]))
 		case !v.FromScript:
 			bad = append(bad, fmt.Sprintf("the %s %q was not computed by a script run", role, names[role]))
-		case (h.Prediction.Shape == "direction" || h.Prediction.Shape == "range") && v.Bound && (h.Measure == nil || h.Measure.ID != v.MeasureID):
+		case IsEstimate(h) && !v.Bound:
+			bad = append(bad, fmt.Sprintf("the %s %q is not bound to the estimate's measure", role, names[role]))
+		case (h.Prediction.Shape == "direction" || h.Prediction.Shape == "range" || IsEstimate(h)) && v.Bound && (h.Measure == nil || h.Measure.ID != v.MeasureID):
 			bad = append(bad, fmt.Sprintf("the %s %q is bound to a different hypothesis measure", role, names[role]))
 		case !v.Reproduced:
 			s := fmt.Sprintf("the %s %q was not reproduced", role, names[role])
@@ -187,6 +189,8 @@ func byShape(h HypothesisBody, a Assessment, m map[string]Measured) (string, []s
 			return Supported, []string{fmt.Sprintf("measured %s is inside the predicted range %g–%g", shown, *p.Low, *p.High)}
 		}
 		return Refuted, []string{fmt.Sprintf("measured %s is outside the predicted range %g–%g", shown, *p.Low, *p.High)}
+	case "estimate":
+		return byEstimate(h, m[a.Measurement])
 	case "outcomes":
 		if h.Comparison != nil {
 			return byNumericOutcome(h, a, m)
@@ -323,4 +327,27 @@ func Lower(status, objectionType string) string {
 		}
 	}
 	return status
+}
+
+// byEstimate supports an estimate whose bound measurement was reproduced:
+// there is no prediction to refute. A published value is reported beside it,
+// never judged (a replication is a valid study).
+func byEstimate(h HypothesisBody, v Measured) (string, []string) {
+	shown := v.BoundValue
+	if shown == "" {
+		shown = fmt.Sprint(v.Value)
+	}
+	var unit string
+	if h.Measure != nil {
+		unit = h.Measure.Unit
+	}
+	reasons := []string{fmt.Sprintf("measured %s %s by %s; reproduced on replay", shown, unit, h.Method)}
+	if r := h.Reported; r != nil {
+		if diff := math.Abs(v.Value-r.Value) / math.Max(math.Abs(r.Value), math.SmallestNonzeroFloat64); diff <= 0.005 {
+			reasons = append(reasons, fmt.Sprintf("published value %g (%s) matches", r.Value, r.Source))
+		} else {
+			reasons = append(reasons, fmt.Sprintf("published value %g (%s) differs by %.1f%%", r.Value, r.Source, diff*100))
+		}
+	}
+	return Supported, reasons
 }

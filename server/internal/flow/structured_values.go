@@ -134,7 +134,8 @@ func checkBoundValue(r db.Record, executions, work []db.Record, files map[string
 		if field.unit == result.Measure.Unit {
 			add("scale", "The field unit matches the hypothesis unit.", true)
 		} else {
-			add("scale", "The field unit differs from the hypothesis unit. Save and cite the number in the declared unit.", false)
+			// Name both, so a redo can copy the declared unit exactly.
+			add("scale", fmt.Sprintf("The field unit %q differs from the hypothesis unit %q. Save the number with unit %q, exactly as declared.", field.unit, result.Measure.Unit, result.Measure.Unit), false)
 		}
 	}
 	result.Found = review.ItemStatus(result.Binding) == review.Pass
