@@ -169,6 +169,7 @@ export interface StudyReport {
   stages: string[];
   finished_at: string;
   hand_in: ReportHandIn | null;
+  supplementary_validation?: ReportHandIn;
   replay?: {
     steps: { of: string; exit_status: number; stderr?: string }[] | null;
     failure: string | null;

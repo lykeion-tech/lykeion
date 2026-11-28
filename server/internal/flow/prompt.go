@@ -268,7 +268,7 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest, templates ...str
 	case board.Hypotheses:
 		b.WriteString("Specify predictions, controls and the test plan before any study scripts run. Defer running experiments to Experimentation, including when delegating.\n" + planningDefers)
 	case board.Validation:
-		b.WriteString("Check the recorded Experimentation work and its replay. Use the exact saved artifact keys when inspecting files. Keep supplementary checks distinct from the original experiment.\n\n")
+		b.WriteString("Check the recorded Experimentation method and its replay. Use the exact saved artifact keys when inspecting files. The recorded method and its result supply the headline answer. Clearly label independent analyses and their files as supplementary. Report concrete implementation errors, failed replays, and violations of explicit study requirements.\n\n")
 	}
 	if i, j := board.StageIndex(scopeFrom), board.StageIndex(column); i >= 0 && i < j {
 		fmt.Fprintf(&b, "Earlier columns of this study (%s) came before yours, and your prompt lists what they handed in. Their papers and datasets count as sources here, by their ids, and `read_output` reads the files they saved.\n\n",

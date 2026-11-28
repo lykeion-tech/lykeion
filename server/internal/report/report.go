@@ -12,23 +12,25 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	db "lykeion/server/pkg/db/generated"
 )
 
 type Report struct {
-	CardID     uuid.UUID  `json:"card_id"`
-	Number     int32      `json:"number"`
-	Title      string     `json:"title"`
-	Question   string     `json:"question"`    // the card's question, or its title when empty
-	Stages     []string   `json:"stages"`      // board.Stages from scope_from to scope_to
-	FinishedAt time.Time  `json:"finished_at"` // the newest outcome record in the last column
-	HandIn     *HandIn    `json:"hand_in"`     // nil when the last column has no summary record
-	Replay     *Replay    `json:"replay,omitempty"`
-	Nodes      []Node     `json:"nodes"`
-	Edges      []Edge     `json:"edges"`
-	Steering   []Steering `json:"steering"` // comments and answered decisions, oldest first
+	CardID                  uuid.UUID  `json:"card_id"`
+	Number                  int32      `json:"number"`
+	Title                   string     `json:"title"`
+	Question                string     `json:"question"`    // the card's question, or its title when empty
+	Stages                  []string   `json:"stages"`      // board.Stages from scope_from to scope_to
+	FinishedAt              time.Time  `json:"finished_at"` // the newest outcome record in the last column
+	HandIn                  *HandIn    `json:"hand_in"`     // headline answer from the recorded experiment or final column
+	SupplementaryValidation *HandIn    `json:"supplementary_validation,omitempty"`
+	Replay                  *Replay    `json:"replay,omitempty"`
+	Nodes                   []Node     `json:"nodes"`
+	Edges                   []Edge     `json:"edges"`
+	Steering                []Steering `json:"steering"` // comments and answered decisions, oldest first
 
 	Links   []Link `json:"links"`   // phrases of the hand-in tied to nodes, by start
 	Extras  string `json:"extras"`  // concepts and links: pending|ready|none
@@ -446,11 +448,9 @@ func Build(in Input) Report {
 
 	b.judgedChecks()
 
-	if r, ok := b.newest(c.ScopeTo, "summary"); ok {
-		rep.HandIn = &HandIn{Text: records.Body[struct{ Text string }](r).Text, AgentName: b.agentOf(r.AgentRunID), At: r.CreatedAt}
-		if r.AgentRunID != nil {
-			rep.HandIn.RunID = *r.AgentRunID
-		}
+	rep.HandIn = b.handIn(c.ScopeTo)
+	if c.ScopeTo == board.Validation && handin.ModeOf(b.live) == "runs" {
+		rep.HandIn, rep.SupplementaryValidation = b.handIn(board.Experimentation), rep.HandIn
 	}
 	if r, ok := b.newest(c.ScopeTo, "outcome"); ok {
 		rep.FinishedAt = r.CreatedAt
@@ -513,6 +513,18 @@ func Build(in Input) Report {
 		rep.Edges = []Edge{}
 	}
 	return rep
+}
+
+func (b *builder) handIn(column string) *HandIn {
+	r, ok := b.newest(column, "summary")
+	if !ok {
+		return nil
+	}
+	h := &HandIn{Text: records.Body[struct{ Text string }](r).Text, AgentName: b.agentOf(r.AgentRunID), At: r.CreatedAt}
+	if r.AgentRunID != nil {
+		h.RunID = *r.AgentRunID
+	}
+	return h
 }
 
 // of are the live records of the kinds, in column ("" for any), oldest first.

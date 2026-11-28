@@ -170,7 +170,9 @@ func TestBuildFullStudy(t *testing.T) {
 	_ = idle
 	s.rec("experimentation", "output", "o1", 3, &eRun, map[string]any{"name": "fig.png", "size_bytes": 10})
 	s.rec("experimentation", "value", "r6", 3, &eRun, map[string]any{"name": "m", "value": "1.2", "file": "fig.png", "cites": []string{}})
-	s.rec("experimentation", "summary", "r7", 3, &eRun, map[string]any{"text": "Ran it.", "cites": []string{}})
+	experiment := s.rec("experimentation", "summary", "r7", 3, &eRun, map[string]any{"text": "Ran it.", "cites": []string{}})
+	experiment.Role = "leader"
+	experimentAt := experiment.CreatedAt
 	s.rec("validation", "assessment", "r8", 4, nil, review.Assessment{Hypothesis: "X raises Y", Measurement: "m"})
 	s.rec("validation", "rerun", "r9", 4, nil, map[string]any{"reproduced": map[string]bool{"m": true}})
 	obj := s.rec("validation", "objection", "r10", 4, nil, review.Objection{TargetKey: "r6", Label: "m", Type: "leakage", Problem: "Test rows reached the fit.",
@@ -182,7 +184,7 @@ func TestBuildFullStudy(t *testing.T) {
 		{Key: "r4", Kind: "hypothesis", Status: "caveated", Checks: []review.Check{}}}})
 	vRun := s.run("validation", "Validator")
 	s.rec("validation", "summary", "r14", 4, &vRun, map[string]any{"text": "Older answer."})
-	hand := s.rec("validation", "summary", "r15", 4, &vRun, map[string]any{"text": "X raises Y, with caveats."})
+	s.rec("validation", "summary", "r15", 4, &vRun, map[string]any{"text": "X raises Y, with caveats."})
 	out := s.rec("validation", "outcome", "r16", 4, nil, map[string]any{"verdict": "pass"})
 	author, decider := uuid.New(), uuid.New()
 	decidedAt := t0.Add(30 * time.Minute)
@@ -235,8 +237,11 @@ func TestBuildFullStudy(t *testing.T) {
 	if len(r.Edges) != 11 {
 		t.Errorf("edges: %v", r.Edges)
 	}
-	if r.HandIn == nil || r.HandIn.Text != "X raises Y, with caveats." || r.HandIn.AgentName != "Validator" || r.HandIn.RunID != vRun || !r.HandIn.At.Equal(hand.CreatedAt) {
+	if r.HandIn == nil || r.HandIn.Text != "Ran it." || r.HandIn.AgentName != "Experimenter" || r.HandIn.RunID != eRun || !r.HandIn.At.Equal(experimentAt) {
 		t.Fatalf("hand-in: %+v", r.HandIn)
+	}
+	if r.SupplementaryValidation == nil || r.SupplementaryValidation.Text != "X raises Y, with caveats." || r.SupplementaryValidation.RunID != vRun {
+		t.Fatalf("supplementary Validation: %+v", r.SupplementaryValidation)
 	}
 	if len(r.Steering) != 2 || r.Steering[0].Kind != "decision" || r.Steering[0].Author != decider || r.Steering[1].Kind != "comment" || r.Steering[1].Text != "Use the mouse data." {
 		t.Fatalf("steering: %+v", r.Steering)
