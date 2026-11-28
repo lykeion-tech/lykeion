@@ -329,6 +329,52 @@ func TestModeAEndsWithStatuses(t *testing.T) {
 	}
 }
 
+func TestValidationMethodPreferenceKeepsRecordedExperiment(t *testing.T) {
+	for _, tc := range []struct {
+		name, column string
+		deviation    float64
+	}{
+		{"alternative analysis", "validation", 0.1},
+		{"demonstrated method error", "experimentation", 0.9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := newLab(t)
+			l.jev(t, 200, levels(nil)).setNoul(func(question string) float64 {
+				if strings.Contains(question, "explicit method requirement") {
+					return tc.deviation
+				}
+				return 0.9
+			})
+			l.online(t, "lab", "claude", "codex")
+			yes := true
+			c := modeAStudy(t, l, &yes)
+			l.assess(t, c.ID)
+			l.object(t, c.ID, review.Objection{Label: "Rival A", Type: "wrong_test", Problem: tc.name})
+			got := l.card(t, c.ID)
+			if got.BoardColumn != tc.column || tc.column == "validation" && got.State != "done" {
+				t.Fatalf("after objection: %s %s", got.BoardColumn, got.State)
+			}
+			if tc.column == "validation" {
+				ss := l.statuses(t, c.ID, true)
+				if len(ss) != 1 || ss[0].Status != review.Caveated || !slices.Contains(ss[0].Reasons, "an upheld supplementary method objection") {
+					t.Fatalf("the method alternative should leave a caveat: %+v", ss)
+				}
+			}
+		})
+	}
+}
+
+func TestExplicitClaudeStudyUsesClaudeObjector(t *testing.T) {
+	l := newLab(t)
+	l.online(t, "lab", "claude", "codex")
+	c := l.validationLead(t, "claude")
+	cli := "claude"
+	c.StudyCli, c.AuditorCli = &cli, &cli
+	if run, same := l.objector(t, c, "brief"); run.Harness != cli || !same {
+		t.Fatalf("objector uses %q, same family: %t", run.Harness, same)
+	}
+}
+
 func TestInvalidRoutesBackOnceThenAsks(t *testing.T) {
 	l := newLab(t)
 	l.jev(t, 200, levels(nil))

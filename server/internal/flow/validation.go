@@ -46,9 +46,9 @@ const objectorAssignment = "Look for errors in the study's Validation statuses."
 
 // enqueueObjector queues the blind objector on the card's Validation round
 // with brief as its whole prompt: a system run with no agent, the harness's
-// default model and no skill. A Codex lead keeps the Objector on Codex
-// unless the study explicitly selected Claude for auditing. Other studies
-// keep the cross-family preference. Its session is always fresh.
+// default model and no skill. An explicit same-family study keeps its objector
+// in that family. A Codex lead otherwise keeps Codex unless auditing explicitly
+// selected Claude. Its session is always fresh.
 func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, brief string) (sameFamily bool, err error) {
 	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
 	if err != nil {
@@ -65,10 +65,13 @@ func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, b
 		return tx.Q.CardHasOnlineRuntime(ctx, db.CardHasOnlineRuntimeParams{WorkspaceID: tx.WS, CardID: c.ID, Harness: h})
 	}
 	harness := otherFamily[lead]
-	codexOnly := ptrOr(c.StudyCli) == "codex" && ptrOr(c.AuditorCli) == "codex" ||
-		lead == "codex" && (c.AuditorCli == nil || *c.AuditorCli == "codex")
-	if codexOnly {
-		harness, sameFamily = "codex", lead == "codex"
+	locked := ptrOr(c.StudyCli)
+	if locked != "" && locked == ptrOr(c.AuditorCli) {
+		harness, sameFamily = locked, lead == locked
+	} else if lead == "codex" && (c.AuditorCli == nil || *c.AuditorCli == "codex") {
+		locked, harness, sameFamily = "codex", "codex", true
+	} else {
+		locked = ""
 	}
 	if harness == "" {
 		harness = "claude"
@@ -90,7 +93,7 @@ func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, b
 	if err != nil {
 		return false, err
 	}
-	if !ok && lead != "" && !codexOnly {
+	if !ok && lead != "" && locked == "" {
 		if sameFamily, err = online(lead); err != nil {
 			return false, err
 		}
@@ -660,6 +663,14 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 			// on its own, and the lowest result stands.
 			for _, j := range on {
 				s := &statuses[j]
+				if o.Supplementary {
+					if s.Status == review.Supported {
+						s.Status = review.Caveated
+					}
+					s.Reasons = append(s.Reasons, "an upheld supplementary method objection")
+					s.Cites = append(s.Cites, key)
+					continue
+				}
 				if lower := review.Lower(v.statuses[j].Status, o.Type); lower != v.statuses[j].Status {
 					if statusRank[lower] < statusRank[s.Status] {
 						s.Status = lower

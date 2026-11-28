@@ -213,6 +213,12 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
           </template>
           <p v-else class="hand-in-none">The agents left no hand-in report.</p>
         </section>
+        <section v-if="report.supplementary_validation" class="hand-in" aria-label="Supplementary Validation">
+          <h2 class="type-caption">Supplementary Validation</h2>
+          <div class="hand-in-text">
+            <RecordedMarkdown :content="report.supplementary_validation.text" />
+          </div>
+        </section>
         <p v-for="notice in notices" :key="notice" class="report-notice type-caption" role="status">
           {{ notice }}
         </p>

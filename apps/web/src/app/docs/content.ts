@@ -392,7 +392,7 @@ A submitted answer is recorded with the decision. The study can then continue ac
 
 Select a report to read the hand-in, explore its evidence graph and open the Report pane. Use its tabs and source details to follow what the study recorded. A report is a starting point for inspection, not a substitute for checking the evidence.
 
-When Validation has recorded findings, the report header summarizes their final outcomes. The recorded agent hand-in below preserves the agent's account from the time it was submitted.
+When Validation checks a recorded experiment, the Experimentation hand-in supplies the headline answer. The report also shows Validation's findings and any supplementary analyses. A failed replay or a demonstrated error in applying the study's method can still send work back to Experimentation.
 
 Decisions can also contain private notes you create for yourself. Review a note before saving it, and use its controls to edit or resolve it. See [evidence and results](/docs/evidence-and-results/) for reading research outputs and [Jev](/docs/jev/) for how configured study review works.
 `,

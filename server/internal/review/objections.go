@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"strings"
 
@@ -14,21 +15,23 @@ import (
 // Upheld false. TargetKey is the key of the record the label stands for,
 // and SameFamily says the objector ran on the same CLI family as the column.
 type Objection struct {
-	TargetKey  string  `json:"target_key"`
-	Label      string  `json:"label"`
-	Type       string  `json:"type"`
-	Quote      *string `json:"quote"`
-	Problem    string  `json:"problem"`
-	Server     string  `json:"server"` // "ok", or why the server dropped it
-	Checks     []Check `json:"checks"`
-	Upheld     bool    `json:"upheld"`
-	SameFamily bool    `json:"same_family"`
+	TargetKey     string  `json:"target_key"`
+	Label         string  `json:"label"`
+	Type          string  `json:"type"`
+	Quote         *string `json:"quote"`
+	Problem       string  `json:"problem"`
+	Server        string  `json:"server"` // "ok", or why the server dropped it
+	Checks        []Check `json:"checks"`
+	Upheld        bool    `json:"upheld"`
+	Supplementary bool    `json:"supplementary,omitempty"`
+	SameFamily    bool    `json:"same_family"`
 }
 
 // objectorHandIn tells the objector what to look for and how to hand it in.
 const objectorHandIn = "You are checking a finished study for errors. Below are its hypotheses, each under a label in an order that means nothing, " +
 	"with its prediction, its control, and the status the server computed for it from the study's recorded values; then the names of its values and saved files. " +
 	"Read any saved file with `read_output`, by its name.\n\n" +
+	"Judge the recorded experiment against the study's requirements. Describe alternative analyses as supplementary checks and identify what they would change.\n\n" +
 	"Look for these errors:\n" +
 	"- `wrong_test`: the statistical test does not fit the data or the prediction.\n" +
 	"- `leakage`: information from the test data reached the fitting, or the outcome reached the inputs.\n" +
@@ -91,7 +94,12 @@ func shuffled(statuses []StatusResult, hs []HypothesisBody, seed int64) []rival 
 	for i, j := range rand.New(rand.NewPCG(uint64(seed), 0)).Perm(len(hs)) {
 		h := hs[j]
 		var b strings.Builder
-		fmt.Fprintf(&b, "Hypothesis: %s\n%s\n", h.Text, predictionLine(h.Prediction))
+		fmt.Fprintf(&b, "Hypothesis: %s\n", h.Text)
+		if IsEstimate(h) {
+			fmt.Fprintln(&b, estimateLine(h))
+		} else {
+			fmt.Fprintln(&b, predictionLine(h.Prediction))
+		}
 		if h.Control.None != "" {
 			fmt.Fprintf(&b, "No control: %s\n", h.Control.None)
 		} else {
@@ -111,6 +119,8 @@ var objectionQuestions = map[string]string{
 	"specific": "Is the objection specific to this record rather than generic?",
 }
 
+const methodDeviation = "Does this objection identify a concrete error in applying the recorded method, or show that the recorded method violated an explicit method requirement of the study?"
+
 // JudgeObjections checks each objection against texts, the text of every
 // target the objector was shown by its label. The server check comes first:
 // the target exists and any quote is in its text verbatim. Only an objection
@@ -119,7 +129,7 @@ var objectionQuestions = map[string]string{
 func CheckObjections(objs []Objection, texts map[string]string) []Objection {
 	out := make([]Objection, 0, len(objs))
 	for _, o := range objs {
-		o.Checks, o.Upheld = []Check{}, false
+		o.Checks, o.Upheld, o.Supplementary = []Check{}, false, false
 		text, ok := texts[strings.TrimSpace(o.Label)]
 		switch {
 		case !ok:
@@ -145,7 +155,12 @@ func JudgeObjections(ctx context.Context, ask Asker, objs []Objection, texts map
 		if o.Quote != nil {
 			item += "\nQuoted from it: " + *o.Quote
 		}
-		ps, err := ask.Noul(ctx, ItemState("Validation", item, []string{text}, MaxState), objectionQuestions)
+		questions := objectionQuestions
+		if o.Type == "wrong_test" {
+			questions = maps.Clone(questions)
+			questions["method_deviation"] = methodDeviation
+		}
+		ps, err := ask.Noul(ctx, ItemState("Validation", item, []string{text}, MaxState), questions)
 		if err != nil {
 			return nil, err
 		}
@@ -160,6 +175,16 @@ func JudgeObjections(ctx context.Context, ask Asker, objs []Objection, texts map
 			c.P = &p
 			o.Checks = append(o.Checks, c)
 			o.Upheld = o.Upheld && c.Status == Pass
+		}
+		if o.Type == "wrong_test" {
+			p, ok := ps["method_deviation"]
+			if !ok {
+				return nil, fmt.Errorf("jev gave no answer for method_deviation")
+			}
+			status := StatusOf(p)
+			p = stored(p)
+			o.Checks = append(o.Checks, Check{ID: "method_deviation", By: "jev", Question: methodDeviation, Status: status, P: &p})
+			o.Supplementary = o.Upheld && status != Pass
 		}
 		out[i] = o
 	}
