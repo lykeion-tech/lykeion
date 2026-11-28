@@ -70,6 +70,9 @@ func TestPreflightOrder(t *testing.T) {
 		{"missing", "claude", "", true, true, agent.ReasonCLIMissing},
 		{"no version", "claude", "exit 1\n", true, true, agent.ReasonCLIMissing},
 		{"too old", "claude", `case "$1" in --version) echo 2.1.69; exit 0;; --help) echo "  --print"; exit 0;; esac` + "\n", true, true, agent.ReasonCLITooOld},
+		// A help command that fails says nothing about the flag: seen live, it
+		// flagged a current Claude as too old and held every run for 30 minutes.
+		{"help fails", "claude", `case "$1" in --version) echo 2.1.332; exit 0;; --help) exit 1;; esac` + "\n", true, true, agent.ReasonCLIBroken},
 		{"claude without the role flag", "claude", strings.Replace(claudeProbes, "2.1.69", "2.1.68", 1), true, true, agent.ReasonCLITooOld},
 		{"sandbox", "claude", claudeProbes, true, true, agent.ReasonSandbox},
 		{"door", "claude", claudeProbes, false, true, agent.ReasonDoor},

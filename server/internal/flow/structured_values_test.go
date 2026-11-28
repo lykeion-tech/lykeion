@@ -256,3 +256,41 @@ func TestUnitMismatchNamesBothUnits(t *testing.T) {
 		t.Fatalf("scale detail = %q", detail)
 	}
 }
+
+// Live (bix-37): the script saved 72896133.2946858 (Python's repr) and the
+// agent reported 72896133.294685796 (numpy's 17-digit repr of the same
+// number); padding the saved value to the reported places failed a correct
+// answer on every redo. More reported digits that round to the saved field
+// now bind; ones that do not still fail.
+func TestBoundValueWithMoreDigitsThanTheSavedField(t *testing.T) {
+	const path = "outputs/eno1.json"
+	const contents = `{"eno1":{"value":72896133.2946858,"measure":"eno1","unit":"intensity"}}`
+	producer := uuid.New()
+	runBody := fmt.Appendf(nil, `{"tool":"run_script","exit_status":0,"output_hashes":{"%s":"%x"}}`, path, sha256.Sum256([]byte(contents)))
+	outputBody := fmt.Appendf(nil, `{"name":"%s","sha256":"%x"}`, path, sha256.Sum256([]byte(contents)))
+	runs := []db.Record{{Kind: "run", BoardColumn: board.Experimentation, Key: "x1", Body: runBody, AgentRunID: &producer, Round: 2}}
+	measure := review.Measure{ID: "eno1", Name: "ENO1 level", Unit: "intensity"}
+	for reported, want := range map[string]string{
+		"72896133.294685796": review.Pass, // same number, more digits
+		"72896133.2946858":   review.Pass,
+		"72896133.294685896": review.Fail, // rounds to ...2946859
+		"72896133.30":        review.Fail, // a rounded report must round from the saved field
+	} {
+		field, id := "/eno1/value", "eno1"
+		b, _ := json.Marshal(review.ValueBody{Name: "eno1", File: path, Value: reported, Field: &field, Measure: &id, Cites: []string{"run:x1"}})
+		work := []db.Record{
+			{Kind: "output", BoardColumn: board.Experimentation, Key: "o1", Body: outputBody, AgentRunID: &producer, Round: 2},
+			{Kind: "value", Key: "r1", Body: b},
+		}
+		values := experimentationValues(work, runs, nil, map[string]string{"o1": contents}, map[string]review.Measure{"eno1": measure})
+		var got string
+		for _, c := range values[0].Binding {
+			if c.ID == "bound" {
+				got = c.Status
+			}
+		}
+		if got != want {
+			t.Errorf("reported %s: bound %s, want %s", reported, got, want)
+		}
+	}
+}

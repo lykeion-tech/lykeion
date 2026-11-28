@@ -33,21 +33,41 @@ func Reasons(r Result) []string {
 		out = append(out, it.Label+": consider this paper (it meets every criterion but was not cited)")
 	}
 	if standing == 0 {
-		switch r.Column {
-		case "grounding":
-			out = append(out, "The Team handed in no papers and no 'nothing qualifies' statement.")
-		case "hypotheses":
-			out = append(out, "The Team handed in no hypotheses.")
-		case "validation":
-			out = append(out, "The Team handed in no verdicts or flagged errors.")
-		default:
-			out = append(out, "The Team handed in no outputs or values.")
+		note, ok := emptyColumnNotes[r.Column]
+		if !ok {
+			note = emptyColumnNotes[""]
 		}
+		out = append(out, note)
 	}
 	if len(out) == 0 && Decide(r, 0) == DecideRedo {
-		out = append(out, "The review found problems with this column.")
+		out = append(out, problemsNote)
 	}
 	return out
+}
+
+// emptyColumnNotes and problemsNote are about a whole column, not an item:
+// a redo answers them with work, never in replies.
+var emptyColumnNotes = map[string]string{
+	"grounding":  "The Team handed in no papers and no 'nothing qualifies' statement.",
+	"hypotheses": "The Team handed in no hypotheses.",
+	"validation": "The Team handed in no verdicts or flagged errors.",
+	"":           "The Team handed in no outputs or values.",
+}
+
+const problemsNote = "The review found problems with this column."
+
+// IsColumnNote is whether text is one of Reasons' column-wide notes.
+func IsColumnNote(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == problemsNote {
+		return true
+	}
+	for _, n := range emptyColumnNotes {
+		if t == n {
+			return true
+		}
+	}
+	return false
 }
 
 func reason(c Check) string {

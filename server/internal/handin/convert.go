@@ -424,6 +424,9 @@ func (c *converter) replies(rs []Reply, prev Review) {
 		}
 	}()
 	for i, r := range rs {
+		if review.IsColumnNote(r.Item) {
+			continue // a note on the whole column, not an item: answered by the work itself
+		}
 		id := identity(r.Item)
 		if target, isAlias := prev.Aliases[id]; isAlias {
 			original := identity(target)

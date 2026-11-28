@@ -12,6 +12,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
 	"io"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -720,4 +721,36 @@ func TestArchiveListContextCancellation(t *testing.T) {
 			t.Fatalf("continued checking after cancellation: %d", bounded.checks)
 		}
 	})
+}
+
+// A gzip file is an archive only when a tar is inside: .rds, .csv.gz, .fastq.gz
+// and .vcf.gz are plain compressed files, and were refused as "unsafe" archives.
+func TestArchiveKindPlainGzipIsAFile(t *testing.T) {
+	gz := func(b []byte) []byte {
+		var buf bytes.Buffer
+		w := gzip.NewWriter(&buf)
+		w.Write(b)
+		w.Close()
+		return buf.Bytes()
+	}
+	head := func(b []byte) []byte { return b[:min(len(b), 512)] } // what every caller reads
+	noise := make([]byte, 8000)
+	r := rand.New(rand.NewPCG(1, 2))
+	for i := range noise {
+		noise[i] = byte(r.Uint32())
+	}
+	csv := bytes.Repeat([]byte("gene,sample,count\nA,1,10\n"), 400)
+	for name, b := range map[string][]byte{"rds": noise, "csv.gz": csv} {
+		if got := Kind(head(gz(b)), "data."+name); got != None {
+			t.Errorf("plain gzip %s: got %v, want None", name, got)
+		}
+	}
+	var tb bytes.Buffer
+	tw := tar.NewWriter(&tb)
+	tw.WriteHeader(&tar.Header{Name: "a.txt", Mode: 0600, Size: 1})
+	tw.Write([]byte("x"))
+	tw.Close()
+	if got := Kind(head(gz(tb.Bytes())), "data.tar.gz"); got != TarGz {
+		t.Errorf("tar.gz: got %v, want TarGz", got)
+	}
 }

@@ -1,6 +1,9 @@
 package review
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func it(label, status string, cs ...Check) Item {
 	return Item{Label: label, Status: status, Checks: cs}
@@ -107,5 +110,25 @@ func TestCarryNoteIncludesWarnings(t *testing.T) {
 	}
 	if Decide(r, 0) != DecidePass {
 		t.Error("warning must not affect Decide")
+	}
+}
+
+// Live (bix-29): a direction prediction for an odds-ratio question failed
+// "supported", and the redo withdrew it instead of turning it into an
+// estimate, which blocked the study. The redo note now says so.
+func TestRedoNotePointsUnsupportedPredictionsToAnEstimate(t *testing.T) {
+	unsupported := Result{Column: "hypotheses", Items: []Item{{Key: "h1", Kind: KindHypothesis, Label: "BCG lowers severity", Status: Fail,
+		Checks: []Check{{ID: "supported", By: "jev", Status: Fail, Question: "Does the cited evidence support making this prediction?"}}}}}
+	if n := RedoNote(unsupported); !strings.Contains(n, "`estimate`") || !strings.Contains(n, "instead of withdrawing") {
+		t.Fatalf("no estimate hint:\n%s", n)
+	}
+	other := Result{Column: "hypotheses", Items: []Item{{Key: "h1", Kind: KindHypothesis, Label: "x", Status: Fail,
+		Checks: []Check{{ID: "falsifiable", By: "jev", Status: Fail}}}}}
+	grounding := Result{Column: "grounding", Items: []Item{{Key: "p1", Kind: KindPaper, Label: "doi:10.1/a", Status: Fail,
+		Checks: []Check{{ID: "supported", By: "jev", Status: Fail}}}}}
+	for _, r := range []Result{other, grounding} {
+		if strings.Contains(RedoNote(r), "`estimate`") {
+			t.Fatalf("estimate hint where it does not apply:\n%s", RedoNote(r))
+		}
 	}
 }

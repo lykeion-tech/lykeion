@@ -62,7 +62,7 @@ func Kind(head []byte, name string) Format {
 	case bytes.HasPrefix(head, []byte{'P', 'K', 3, 4}), bytes.HasPrefix(head, []byte{'P', 'K', 5, 6}):
 		return Zip
 	case bytes.HasPrefix(head, []byte{0x1f, 0x8b}):
-		return TarGz
+		return gzipKind(head)
 	case bytes.HasPrefix(head, []byte{0xfd, '7', 'z', 'X', 'Z', 0}):
 		return TarXz
 	case bytes.HasPrefix(head, []byte("BZh")):
@@ -82,6 +82,30 @@ func Kind(head []byte, name string) Format {
 		}
 	}
 	return None
+}
+
+// gzipKind is TarGz only when a tar is inside: .rds, .csv.gz, .fastq.gz and
+// .vcf.gz are plain compressed files, not archives. With too little of the
+// stream to tell, it stays TarGz, which lists and checks the whole file.
+func gzipKind(head []byte) Format {
+	zr, err := gzip.NewReader(bytes.NewReader(head))
+	if err != nil {
+		return TarGz
+	}
+	inner := make([]byte, 512)
+	n, _ := io.ReadFull(zr, inner)
+	switch {
+	case n >= 262 && string(inner[257:262]) == "ustar":
+		return TarGz
+	case n == 512:
+		if _, err := tar.NewReader(bytes.NewReader(inner)).Next(); err == nil {
+			return TarGz
+		}
+		return None
+	case n >= 262:
+		return None
+	}
+	return TarGz
 }
 
 func safeName(name string) error {
