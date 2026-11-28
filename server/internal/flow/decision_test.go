@@ -67,18 +67,53 @@ func (l *lab) heldStudy(t *testing.T) (db.Card, uuid.UUID) {
 	t.Helper()
 	c := l.study(t, "hypotheses", true, nil)
 	l.e.Kick(l.ws, c.ID)
-	lead := l.latestRun(t, c.ID, "leader")
-	l.in(t, func(tx *store.Tx) error {
-		_, err := records.WriteAs(context.Background(), tx, service.Writer{Card: c.ID, AgentRun: lead.ID, Column: "hypotheses", Role: "leader", Round: c.Round},
-			"hand_in", map[string]any{"agent_run_id": lead.ID, "attempt": 1, "hand_in": map[string]any{"status": "could_not_do", "answer": "", "reason": "no data"}})
-		return err
-	})
-	l.settle(t, lead, "completed", "", "")
+	// A planning column gets one redo before a could_not_do holds the study.
+	for range 2 {
+		l.couldNotDo(t, c.ID, "hypotheses", "no data")
+	}
 	var item uuid.UUID
 	if err := l.env.Owner.QueryRow(context.Background(), "SELECT id FROM inbox_item WHERE card_id = $1 AND cause = 'could_not_do' AND status = 'open'", c.ID).Scan(&item); err != nil {
 		t.Fatal(err)
 	}
 	return l.card(t, c.ID), item
+}
+
+// couldNotDo has the column's current lead hand in could_not_do and settles it.
+func (l *lab) couldNotDo(t *testing.T, card uuid.UUID, column, reason string) {
+	t.Helper()
+	lead := l.latestRun(t, card, "leader")
+	round := l.card(t, card).Round
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(context.Background(), tx, service.Writer{Card: card, AgentRun: lead.ID, Column: column, Role: "leader", Round: round},
+			"hand_in", map[string]any{"agent_run_id": lead.ID, "attempt": 1, "hand_in": map[string]any{"status": "could_not_do", "answer": "", "reason": reason}})
+		return err
+	})
+	l.settle(t, lead, "completed", "", "")
+}
+
+// A planning column cannot run code by design, yet leads have handed in
+// could_not_do for it (live BixBench runs). The first one is redone with a
+// note that the analysis runs in Experimentation; a second holds the study.
+func TestPlanningCouldNotDoIsRedoneOnce(t *testing.T) {
+	l := newLab(t)
+	c := l.study(t, "grounding", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	l.couldNotDo(t, c.ID, "grounding", "the shell refused to run the analysis script")
+	got := l.card(t, c.ID)
+	if got.State != "working" || got.Round != c.Round+1 || got.Redos != 1 ||
+		!strings.Contains(got.HandoffNote, "runs in Experimentation") || !strings.Contains(got.HandoffNote, "the shell refused to run the analysis script") {
+		t.Fatalf("after a first could_not_do: %s round %d redos %d note %q", got.State, got.Round, got.Redos, got.HandoffNote)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'could_not_do'", c.ID); n != 0 {
+		t.Fatalf("%d holds after the first could_not_do", n)
+	}
+	l.couldNotDo(t, c.ID, "grounding", "still no code")
+	if got := l.card(t, c.ID); got.State != "blocked" {
+		t.Fatalf("after a second could_not_do: %s", got.State)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'could_not_do' AND status = 'open'", c.ID); n != 1 {
+		t.Fatalf("%d holds after the second could_not_do", n)
+	}
 }
 
 func (l *lab) decision(t *testing.T, id uuid.UUID) (status, chosen, guidance string, by *uuid.UUID) {
