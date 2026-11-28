@@ -3,7 +3,10 @@ package review
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
+
+	"lykeion/server/internal/board"
 )
 
 const (
@@ -183,7 +186,19 @@ func RedoNote(r Result) string {
 		"withdrawn (it no longer stands) or, for a paper the review found missing, declined, each with a reason. " +
 		"A replacement with a different id or text is a new item, so also withdraw the old one. " +
 		"Items you leave unanswered count as failed, and a second failure blocks the study.")
+	if unsupportedPrediction(r) {
+		b.WriteString("\nA prediction no cited evidence supports: if the research question asks for a quantity, hand it in again as an `estimate` " +
+			"(its measure and the method that computes it) instead of withdrawing it, and withdraw the prediction. Withdrawing every hypothesis blocks the study.")
+	}
 	return b.String()
+}
+
+// unsupportedPrediction is whether a hypothesis failed "supported", which
+// only predictions are asked: an estimate is judged on its method instead.
+func unsupportedPrediction(r Result) bool {
+	return r.Column == board.Hypotheses && slices.ContainsFunc(r.Items, func(it Item) bool {
+		return it.Kind == KindHypothesis && it.Status == Fail && slices.ContainsFunc(it.Checks, func(c Check) bool { return c.ID == "supported" && c.Status == Fail })
+	})
 }
 
 // CarryNote lists unclear checks, and warning checks that failed or were
