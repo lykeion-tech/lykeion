@@ -162,7 +162,7 @@ func itemsPrompt(column string) string {
 			"for `range`, `low`, `high` and `uncertainty` (such as a 90% interval). Leave the other shapes' fields null or empty. " +
 			"Use `estimate` only when the question asks for a quantity: give `measure` and `method` (how it is computed, precisely enough that another analyst gets the same number), and `reported` when a source already gives the value. " +
 			"When the question asks whether something holds, use a prediction. Never invent a predicted range for a measurement question;\n" +
-			"  - `measure`: for a numeric prediction, give a short lowercase `id`, human-readable `name` and exact `unit` (such as fraction or percentage points); otherwise null. Reuse an id only for the same measure and unit;\n" +
+			"  - `measure`: for an estimate or numeric prediction, give a short lowercase `id`, human-readable `name` and exact `unit` (such as fraction or percentage points); otherwise null. Reuse an id only for the same measure and unit;\n" +
 			"  - `comparison`: for outcomes already defined numerically, give an explicit `threshold` in the measure's unit or the planned `control` value name, with the other set to null. Map `less`, `equal` and `greater` to the registered outcomes. Leave `comparison` null when there is no explicit numeric definition;\n" +
 			"  - `control`: the baseline it is compared with, or `no_control`: why there is none (give exactly one; an estimate needs neither);\n" +
 			"  - `cites`: at least one source the hypothesis rests on. Use the DOI, arXiv or PubMed ids or accessions of the study's Grounding papers and datasets or of sources you looked up through Lykeion's sources in this study. " +
@@ -197,9 +197,9 @@ func itemsPrompt(column string) string {
 }
 
 // auditorHandIn is the auditor's hand-in.
-const auditorHandIn = "Your prompt holds the leader's answer and the items it handed in. Check that each paper, dataset and quote traces to a source this study looked up through Lykeion's sources, " +
+const auditorHandIn = "Your prompt holds the leader's answer and the items it handed in. Check that each paper, dataset and quote traces to recorded study evidence. The Team can cite a study attachment by its original filename. Check external evidence against the study's Lykeion sources records. Check " +
 	"that each reported value appears in the output file or script run it names, " +
-	"that the work answers what the researcher asked, and that it says what it couldn't do.\n" +
+	"that the work delivers what this column requires for the research question, and that it says what it couldn't do.\n" +
 	"Your final answer is your hand-in: `status` (`done`, or `could_not_do` with a `reason`), `answer` (your findings overall, in plain language), " +
 	"and `concerns`, one per problem: `item` names the item (its id, accession, hypothesis text, value name, or `outputs`) and `concern` says what is wrong. " +
 	"An item you could not check against a source is a concern, never a pass. " +
@@ -295,7 +295,10 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest, templates ...str
 			"The study waits on one question at a time.\n\n")
 	case "auditor":
 		b.WriteString(auditorHandIn)
-		if column == board.Experimentation {
+		switch column {
+		case board.Hypotheses:
+			b.WriteString("Check an estimate's quantity, measure, and reproducible method against its cited evidence. Require a falsifier only for a prediction. An estimate's computed answer belongs in Experimentation.\n")
+		case board.Experimentation:
 			b.WriteString("For bound numeric values, check the exact JSON field in the cited script's saved output and the accepted hypothesis measure.\n")
 		}
 	default:

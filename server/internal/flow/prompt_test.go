@@ -194,6 +194,15 @@ func TestAuditorProtocolNoLongerFeedsJev(t *testing.T) {
 	}
 }
 
+func TestHypothesesAuditorChecksEstimatesAsPlans(t *testing.T) {
+	p := Protocol("auditor", board.Hypotheses, board.Grounding, nil)
+	for _, want := range []string{"an estimate's quantity, measure, and reproducible method", "Require a falsifier only for a prediction", "cite a study attachment by its original filename"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("audit protocol lacks %q", want)
+		}
+	}
+}
+
 // Claude asks before shell redirection writes a file, and nobody answers an
 // unattended run, so every run is told to write files with its file tools.
 // Runs may be Claude or Codex, so no CLI's tool is named.
