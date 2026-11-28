@@ -111,7 +111,13 @@ func checkBoundValue(r db.Record, executions, work []db.Record, files map[string
 		deferMeasure()
 		return result
 	}
-	if reported.r.Cmp(roundAsReported(saved.r, reported.precision())) == 0 {
+	match := reported.r.Cmp(roundAsReported(saved.r, reported.precision())) == 0
+	if !match && saved.precision() >= 0 && reported.precision() > saved.precision() {
+		// More digits than the saved field (numpy's 17-digit repr of the number
+		// Python saved, say): they must round to the saved value.
+		match = roundTo(reported.r, saved.precision()).Cmp(saved.r) == 0
+	}
+	if match {
 		add("bound", fmt.Sprintf("Matches %s at JSON Pointer %q.", v.File, *v.Field), true)
 		result.Output, result.Where = key, "output:"+key
 	} else {
