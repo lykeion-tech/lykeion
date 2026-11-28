@@ -633,3 +633,16 @@ func TestEstimateAssessmentNamesOnlyItsMeasurement(t *testing.T) {
 		}
 	}
 }
+
+// Live (bix-8): the redo note listed "The Team handed in no hypotheses." with
+// the items, the lead answered it in replies, and the hand-in was refused
+// twice ("was not sent back by the last review"), blocking the study. A
+// reply naming a column-wide note is not about an item, so it is ignored.
+func TestARepliedColumnNoteIsIgnored(t *testing.T) {
+	h := parsed(t, Hypotheses, `{"status":"done","answer":"a","reason":null,"replies":[
+		{"item":"The Team handed in no hypotheses.","action":"withdrawn","reason":"now handed in"}],"hypotheses":[
+		{"text":"t1","prediction_shape":"direction","direction":"increase","outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,"control":"c","no_control":null,"cites":["doi:10.1001/a"]}]}`)
+	if _, probs := Convert(Hypotheses, true, h, studyEvidence(), Review{}); len(probs) != 0 {
+		t.Fatalf("problems %q", probs)
+	}
+}
