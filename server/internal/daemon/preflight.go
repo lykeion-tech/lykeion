@@ -107,8 +107,16 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 		return agent.ReasonCLITooOld, "claude " + version + " is older than 2.1.69"
 	}
 	probe := schemaFlags[harness]
-	help, _ := cliOutput(ctx, bin, probe.help...)
+	help, err := cliOutput(ctx, bin, probe.help...)
 	if !strings.Contains(help, probe.flag) {
+		// A help command that failed says nothing about the flag: report the
+		// failure, which is checked again soon, not a CLI that is too old.
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			return "timeout", harness + " help did not answer in time"
+		case err != nil:
+			return agent.ReasonCLIBroken, harness + " help failed: " + err.Error()
+		}
 		return agent.ReasonCLITooOld, harness + " has no " + probe.flag
 	}
 	if err := d.refreshSandboxStatus(ctx); err != nil {
@@ -207,6 +215,9 @@ func cliOutput(ctx context.Context, bin string, args ...string) (string, error) 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.WaitDelay = time.Second
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		err = ctx.Err() // killed at the deadline: say so, not "signal: killed"
+	}
 	return string(out), err
 }
 
